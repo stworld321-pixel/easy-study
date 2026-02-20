@@ -123,6 +123,9 @@ export interface AvailabilitySettings {
   advance_booking_days: number;
   min_notice_hours: number;
   is_accepting_students: boolean;
+  group_session_capacity: number;
+  private_weekly_schedule: WeeklySchedule;
+  group_weekly_schedule: WeeklySchedule;
   weekly_schedule: WeeklySchedule;
   created_at: string;
   updated_at: string;
@@ -142,11 +145,14 @@ export interface CalendarDay {
   is_blocked: boolean;
   reason?: string;
   slots_count: number;
+  time_slots?: TimeSlot[];
 }
 
 export interface MonthCalendar {
   year: number;
   month: number;
+  session_duration: number;
+  buffer_time: number;
   days: CalendarDay[];
 }
 
@@ -161,8 +167,10 @@ export const availabilityAPI = {
     return response.data;
   },
 
-  updateSchedule: async (schedule: WeeklySchedule): Promise<AvailabilitySettings> => {
-    const response = await api.put('/availability/schedule', schedule);
+  updateSchedule: async (schedule: WeeklySchedule, sessionType: 'private' | 'group' = 'private'): Promise<AvailabilitySettings> => {
+    const response = await api.put('/availability/schedule', schedule, {
+      params: { session_type: sessionType },
+    });
     return response.data;
   },
 
@@ -180,13 +188,17 @@ export const availabilityAPI = {
     await api.delete(`/availability/blocked-dates/${dateId}`);
   },
 
-  getCalendar: async (year: number, month: number): Promise<MonthCalendar> => {
-    const response = await api.get(`/availability/calendar/${year}/${month}`);
+  getCalendar: async (year: number, month: number, sessionType: 'private' | 'group' = 'private'): Promise<MonthCalendar> => {
+    const response = await api.get(`/availability/calendar/${year}/${month}`, {
+      params: { session_type: sessionType },
+    });
     return response.data;
   },
 
-  getPublicCalendar: async (tutorId: string, year: number, month: number): Promise<MonthCalendar> => {
-    const response = await api.get(`/availability/public/${tutorId}/calendar/${year}/${month}`);
+  getPublicCalendar: async (tutorId: string, year: number, month: number, sessionType: 'private' | 'group' = 'private'): Promise<MonthCalendar> => {
+    const response = await api.get(`/availability/public/${tutorId}/calendar/${year}/${month}`, {
+      params: { session_type: sessionType },
+    });
     return response.data;
   },
 };
@@ -980,6 +992,63 @@ export const materialsAPI = {
 
   getTutorRatings: async (tutorId: string): Promise<RatingResponse[]> => {
     const response = await api.get(`/ratings/tutor/${tutorId}`);
+    return response.data;
+  },
+};
+
+// Messaging API Types
+export interface ConversationResponse {
+  id: string;
+  student_id: string;
+  tutor_id: string;
+  student_name: string;
+  tutor_name: string;
+  last_message_at?: string;
+  last_message_preview?: string;
+  created_at: string;
+}
+
+export interface ChatMessageResponse {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  sender_role: string;
+  sender_name: string;
+  content: string;
+  created_at: string;
+}
+
+// Messages API
+export const messagesAPI = {
+  startConversation: async (tutorUserId: string): Promise<ConversationResponse> => {
+    const response = await api.post('/messages/conversations/start', { tutor_user_id: tutorUserId });
+    return response.data;
+  },
+
+  getConversations: async (): Promise<ConversationResponse[]> => {
+    const response = await api.get('/messages/conversations');
+    return response.data;
+  },
+
+  getMessages: async (conversationId: string): Promise<ChatMessageResponse[]> => {
+    const response = await api.get(`/messages/conversations/${conversationId}/messages`);
+    return response.data;
+  },
+
+  sendMessage: async (conversationId: string, content: string): Promise<ChatMessageResponse> => {
+    const response = await api.post(`/messages/conversations/${conversationId}/messages`, { content });
+    return response.data;
+  },
+
+  adminGetConversations: async (search?: string): Promise<ConversationResponse[]> => {
+    const response = await api.get('/messages/admin/conversations', {
+      params: search ? { search } : {},
+    });
+    return response.data;
+  },
+
+  adminGetMessages: async (conversationId: string): Promise<ChatMessageResponse[]> => {
+    const response = await api.get(`/messages/admin/conversations/${conversationId}/messages`);
     return response.data;
   },
 };

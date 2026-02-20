@@ -7,14 +7,15 @@ import {
   CheckCircle, Clock, UserCheck, BarChart3,
   Wallet, UserPlus, Percent, ArrowUpRight,
   FileText, Plus, Edit3, Send, Archive, Star,
-  ArrowDownCircle, Building, Smartphone, CreditCard
+  ArrowDownCircle, Building, Smartphone, CreditCard, MessageSquare
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { adminAPI, blogAPI, withdrawalAPI } from '../services/api';
 import type { DashboardStats, AdminUser, AdminTutor, AdminBooking, RevenueStats, PaymentRecord, BlogListItem, BlogPost, WithdrawalResponse, WithdrawalStats } from '../services/api';
+import ChatInbox from '../components/ChatInbox';
 
-type TabType = 'overview' | 'users' | 'tutors' | 'bookings' | 'revenue' | 'blogs' | 'withdrawals';
+type TabType = 'overview' | 'users' | 'tutors' | 'bookings' | 'revenue' | 'blogs' | 'withdrawals' | 'messages';
 
 interface BlogFormData {
   title: string;
@@ -478,6 +479,7 @@ const AdminDashboard: React.FC = () => {
             { id: 'revenue', label: 'Revenue', icon: Wallet },
             { id: 'withdrawals', label: 'Withdrawals', icon: ArrowDownCircle },
             { id: 'blogs', label: 'Blogs', icon: FileText },
+            { id: 'messages', label: 'Messages', icon: MessageSquare },
           ].map(tab => (
             <button
               key={tab.id}
@@ -1426,6 +1428,17 @@ const AdminDashboard: React.FC = () => {
                 </div>
               )}
             </div>
+          </motion.div>
+        )}
+
+        {/* Messages Tab */}
+        {activeTab === 'messages' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Message Monitoring</h2>
+              <p className="text-gray-600">Admin can monitor tutor-student inbox conversations.</p>
+            </div>
+            <ChatInbox mode="admin" />
           </motion.div>
         )}
 

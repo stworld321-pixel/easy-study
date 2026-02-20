@@ -43,6 +43,26 @@ class TutorAvailability(Document):
     advance_booking_days: int = 30  # How far in advance can book
     min_notice_hours: int = 24  # Minimum notice for booking
     is_accepting_students: bool = True
+    group_session_capacity: int = 10
+    private_weekly_schedule: dict = Field(default_factory=lambda: {
+        "monday": [],
+        "tuesday": [],
+        "wednesday": [],
+        "thursday": [],
+        "friday": [],
+        "saturday": [],
+        "sunday": []
+    })
+    group_weekly_schedule: dict = Field(default_factory=lambda: {
+        "monday": [],
+        "tuesday": [],
+        "wednesday": [],
+        "thursday": [],
+        "friday": [],
+        "saturday": [],
+        "sunday": []
+    })
+    # Backward compatibility: existing private schedule field.
     weekly_schedule: dict = Field(default_factory=lambda: {
         "monday": [],
         "tuesday": [],

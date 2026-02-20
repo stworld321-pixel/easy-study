@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Star, MapPin, Verified, GraduationCap, Users, Video,
@@ -13,6 +13,7 @@ import { useCurrency } from '../context/CurrencyContext';
 
 const TutorProfile: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [tutor, setTutor] = useState<TutorProfileType | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBookingModal, setShowBookingModal] = useState(false);
@@ -368,7 +369,10 @@ const TutorProfile: React.FC = () => {
                 Book a Trial Lesson
               </button>
 
-              <button className="w-full mt-3 py-4 border-2 border-primary-200 text-primary-600 font-semibold rounded-xl hover:bg-primary-50 transition-all duration-300 flex items-center justify-center gap-2">
+              <button
+                onClick={() => navigate(`/student/dashboard?tab=messages&tutor_user_id=${tutor.user_id}`)}
+                className="w-full mt-3 py-4 border-2 border-primary-200 text-primary-600 font-semibold rounded-xl hover:bg-primary-50 transition-all duration-300 flex items-center justify-center gap-2"
+              >
                 <MessageCircle className="w-5 h-5" />
                 Send Message
               </button>

@@ -71,13 +71,6 @@ interface BookingModalProps {
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const TIME_SLOTS = [
-  '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
-  '12:00', '12:30', '13:00', '13:30', '14:00', '14:30',
-  '15:00', '15:30', '16:00', '16:30', '17:00', '17:30',
-  '18:00', '18:30', '19:00', '19:30', '20:00'
-];
-
 const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const { user } = useAuth();
   const { formatPrice, currency } = useCurrency();
@@ -92,6 +85,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   };
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarData, setCalendarData] = useState<CalendarDay[]>([]);
+  const [calendarSessionDuration, setCalendarSessionDuration] = useState<number>(60);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
@@ -102,15 +96,16 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
 
   useEffect(() => {
     fetchCalendar();
-  }, [currentMonth, tutor.id]);
+  }, [currentMonth, tutor.id, sessionType]);
 
   const fetchCalendar = async () => {
     setLoading(true);
     try {
       const year = currentMonth.getFullYear();
       const month = currentMonth.getMonth() + 1;
-      const data = await availabilityAPI.getPublicCalendar(tutor.id, year, month);
+      const data = await availabilityAPI.getPublicCalendar(tutor.id, year, month, sessionType);
       setCalendarData(data.days);
+      setCalendarSessionDuration(data.session_duration || 60);
     } catch (error) {
       console.error('Failed to fetch calendar:', error);
       // Generate mock data
@@ -195,6 +190,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
       return;
     }
     setSelectedDate(day.date);
+    setSelectedTime(null);
     setStep('time');
   };
 
@@ -221,7 +217,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
         tutor_id: tutor.id,
         scheduled_at: `${selectedDate}T${selectedTime}:00`,
         session_type: sessionType,
-        duration_minutes: 60,
+        duration_minutes: calendarSessionDuration || 60,
         subject: tutor.subjects[0] || 'General',
         currency: currency
       });
@@ -309,6 +305,39 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   };
+
+  const getAvailableTimesForDate = (dateStr: string): string[] => {
+    const day = calendarData.find(d => d.date === dateStr);
+    if (!day?.time_slots?.length) {
+      return [];
+    }
+
+    const parseTimeToMinutes = (time: string): number => {
+      const [h, m] = time.split(':').map(Number);
+      return (h * 60) + m;
+    };
+    const toTimeString = (minutes: number): string => {
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    };
+
+    const uniqueTimes = new Set<string>();
+    const slotDuration = Math.max(15, calendarSessionDuration || 60);
+
+    day.time_slots.forEach((slot) => {
+      if (!slot.start_time || !slot.end_time) return;
+      const start = parseTimeToMinutes(slot.start_time);
+      const end = parseTimeToMinutes(slot.end_time);
+      for (let t = start; t + slotDuration <= end; t += slotDuration) {
+        uniqueTimes.add(toTimeString(t));
+      }
+    });
+
+    return Array.from(uniqueTimes).sort((a, b) => a.localeCompare(b));
+  };
+
+  const availableTimesForSelectedDate = selectedDate ? getAvailableTimesForDate(selectedDate) : [];
 
   return (
     <AnimatePresence>
@@ -411,7 +440,12 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                   <div className="grid grid-cols-2 gap-3">
                     {tutor.offers_private && (
                       <button
-                        onClick={() => setSessionType('private')}
+                        onClick={() => {
+                          setSessionType('private');
+                          setSelectedDate(null);
+                          setSelectedTime(null);
+                          setStep('date');
+                        }}
                         className={`p-4 rounded-xl border-2 transition-all flex items-center gap-3 ${
                           sessionType === 'private'
                             ? 'border-primary-500 bg-primary-50'
@@ -429,7 +463,12 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                     )}
                     {tutor.offers_group && (
                       <button
-                        onClick={() => setSessionType('group')}
+                        onClick={() => {
+                          setSessionType('group');
+                          setSelectedDate(null);
+                          setSelectedTime(null);
+                          setStep('date');
+                        }}
                         className={`p-4 rounded-xl border-2 transition-all flex items-center gap-3 ${
                           sessionType === 'group'
                             ? 'border-primary-500 bg-primary-50'
@@ -549,7 +588,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                 </div>
 
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                  {TIME_SLOTS.map((time) => (
+                  {availableTimesForSelectedDate.map((time) => (
                     <button
                       key={time}
                       onClick={() => handleTimeSelect(time)}
@@ -563,6 +602,11 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                     </button>
                   ))}
                 </div>
+                {availableTimesForSelectedDate.length === 0 && (
+                  <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-3 mt-3">
+                    No bookable times available for this date.
+                  </div>
+                )}
               </motion.div>
             )}
 
@@ -602,7 +646,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-gray-600">Duration</span>
-                      <span className="font-medium text-gray-900">60 minutes</span>
+                      <span className="font-medium text-gray-900">{calendarSessionDuration || 60} minutes</span>
                     </div>
                     <div className="border-t border-gray-200 pt-4 flex items-center justify-between">
                       <span className="text-gray-900 font-semibold">Total</span>

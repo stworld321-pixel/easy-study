@@ -9,6 +9,8 @@ from app.services.email_service import email_service
 from datetime import timedelta
 from app.core.config import settings
 import traceback
+import asyncio
+import logging
 import httpx
 from typing import Optional
 from pymongo.errors import DuplicateKeyError, PyMongoError
@@ -16,6 +18,17 @@ from beanie.exceptions import CollectionWasNotInitialized
 
 router = APIRouter()
 security = HTTPBearer()
+logger = logging.getLogger(__name__)
+
+
+def _dispatch_background(coro, context: str) -> None:
+    async def _runner():
+        try:
+            await coro
+        except Exception:
+            logger.exception("Background task failed (%s)", context)
+
+    asyncio.create_task(_runner())
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> User:
     token = credentials.credentials
@@ -55,10 +68,13 @@ async def register(user_data: UserCreate):
 
         # Send welcome email
         try:
-            await email_service.send_welcome_email(
-                to_email=user.email,
-                user_name=user.full_name,
-                is_tutor=(user_data.role == UserRole.TUTOR)
+            _dispatch_background(
+                email_service.send_welcome_email(
+                    to_email=user.email,
+                    user_name=user.full_name,
+                    is_tutor=(user_data.role == UserRole.TUTOR)
+                ),
+                "register_welcome_email"
             )
         except Exception as e:
             print(f"[Email] Failed to send welcome email: {e}")
@@ -249,10 +265,13 @@ async def google_auth(request: GoogleAuthRequest):
 
         # Send welcome email
         try:
-            await email_service.send_welcome_email(
-                to_email=user.email,
-                user_name=user.full_name,
-                is_tutor=(role == UserRole.TUTOR)
+            _dispatch_background(
+                email_service.send_welcome_email(
+                    to_email=user.email,
+                    user_name=user.full_name,
+                    is_tutor=(role == UserRole.TUTOR)
+                ),
+                "google_register_welcome_email"
             )
         except Exception as e:
             print(f"[Email] Failed to send welcome email: {e}")

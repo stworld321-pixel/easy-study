@@ -3,6 +3,8 @@ from typing import List, Optional
 import logging
 from pydantic import BaseModel
 from app.models.booking import Booking, Review, BookingStatus, SessionType
+from app.models.booking_slot import BookingSlot, SlotStatus
+from app.models.availability import TutorAvailability
 from app.models.tutor import TutorProfile
 from app.models.user import User
 from app.schemas.booking import BookingCreate, BookingUpdate, BookingResponse, ReviewCreate, ReviewResponse
@@ -12,6 +14,8 @@ from app.services.google_calendar_service import tutor_google_calendar_service
 from app.services.notification_service import notification_service
 from app.services.payment_service import payment_service
 from datetime import datetime
+from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -44,6 +48,138 @@ def create_booking_response(b: Booking) -> BookingResponse:
 # Currency conversion rate (INR to USD)
 INR_TO_USD_RATE = 0.012
 
+
+async def _get_group_capacity(tutor: TutorProfile) -> int:
+    # Prefer availability setting; fallback to tutor override/default.
+    availability = await TutorAvailability.find_one(TutorAvailability.tutor_id == str(tutor.id))
+    raw = getattr(availability, "group_session_capacity", None)
+    if raw is None:
+        raw = getattr(tutor, "group_capacity", 10)
+    try:
+        value = int(raw)
+    except Exception:
+        value = 10
+    return max(1, value)
+
+
+async def _reserve_slot(
+    tutor: TutorProfile,
+    booking_data: BookingCreate,
+) -> None:
+    """
+    Atomically reserve one seat in tutor slot.
+    Enforces:
+    - single slot definition per tutor+time+duration (cross-type conflict prevention)
+    - private capacity=1
+    - group capacity=N
+    """
+    slot_filter = {
+        "tutor_id": booking_data.tutor_id,
+        "scheduled_at": booking_data.scheduled_at,
+        "duration_minutes": booking_data.duration_minutes,
+    }
+
+    collection = BookingSlot.get_motor_collection()
+    capacity = 1 if booking_data.session_type == SessionType.PRIVATE else await _get_group_capacity(tutor)
+
+    for _ in range(3):
+        slot = await BookingSlot.find_one(slot_filter)
+        if slot:
+            if slot.session_type != booking_data.session_type:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This slot is already booked under another session type."
+                )
+
+            updated = await collection.find_one_and_update(
+                {
+                    "_id": slot.id,
+                    "booked_count": {"$lt": slot.capacity},
+                },
+                {
+                    "$inc": {"booked_count": 1},
+                    "$set": {"updated_at": datetime.utcnow()},
+                },
+                return_document=ReturnDocument.AFTER,
+            )
+
+            if updated:
+                status_value = SlotStatus.FULL.value if updated["booked_count"] >= updated["capacity"] else SlotStatus.OPEN.value
+                await collection.update_one({"_id": slot.id}, {"$set": {"status": status_value}})
+                return
+
+            if slot.session_type == SessionType.PRIVATE:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This private slot is already booked. Please choose another time."
+                )
+            raise HTTPException(
+                status_code=400,
+                detail="This group slot is full. Please choose another time."
+            )
+
+        # Backfill support for old data: if bookings exist without slot doc, initialize counts from active bookings.
+        active_bookings = await Booking.find({
+            "tutor_id": booking_data.tutor_id,
+            "scheduled_at": booking_data.scheduled_at,
+            "duration_minutes": booking_data.duration_minutes,
+            "status": {"$in": [BookingStatus.PENDING.value, BookingStatus.CONFIRMED.value]},
+        }).to_list()
+
+        if active_bookings:
+            existing_types = {b.session_type.value if hasattr(b.session_type, "value") else str(b.session_type) for b in active_bookings}
+            if booking_data.session_type.value not in existing_types or len(existing_types) > 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="This slot is already booked under another session type."
+                )
+            if len(active_bookings) >= capacity:
+                message = "This private slot is already booked. Please choose another time." if booking_data.session_type == SessionType.PRIVATE else "This group slot is full. Please choose another time."
+                raise HTTPException(status_code=400, detail=message)
+            initial_count = len(active_bookings) + 1
+        else:
+            initial_count = 1
+
+        try:
+            slot = BookingSlot(
+                tutor_id=booking_data.tutor_id,
+                scheduled_at=booking_data.scheduled_at,
+                duration_minutes=booking_data.duration_minutes,
+                session_type=booking_data.session_type,
+                capacity=capacity,
+                booked_count=initial_count,
+                status=SlotStatus.FULL if initial_count >= capacity else SlotStatus.OPEN,
+            )
+            await slot.insert()
+            return
+        except DuplicateKeyError:
+            # Race on create; retry loop.
+            continue
+
+    raise HTTPException(status_code=409, detail="Could not reserve slot. Please retry.")
+
+
+async def _release_slot(tutor_id: str, scheduled_at: datetime, duration_minutes: int) -> None:
+    collection = BookingSlot.get_motor_collection()
+    slot = await BookingSlot.find_one({
+        "tutor_id": tutor_id,
+        "scheduled_at": scheduled_at,
+        "duration_minutes": duration_minutes,
+    })
+    if not slot:
+        return
+
+    updated = await collection.find_one_and_update(
+        {"_id": slot.id, "booked_count": {"$gt": 0}},
+        {"$inc": {"booked_count": -1}, "$set": {"updated_at": datetime.utcnow()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated:
+        return
+
+    status_value = SlotStatus.FULL.value if updated["booked_count"] >= updated["capacity"] else SlotStatus.OPEN.value
+    await collection.update_one({"_id": slot.id}, {"$set": {"status": status_value}})
+
 @router.post("", response_model=BookingResponse)
 async def create_booking(
     booking_data: BookingCreate,
@@ -60,6 +196,9 @@ async def create_booking(
             status_code=400,
             detail="A valid student email is required to create a booking."
         )
+
+    # Reserve tutor slot atomically (capacity + cross-type conflict guards).
+    await _reserve_slot(tutor, booking_data)
 
     # Prevent duplicate active bookings for the same slot by the same student.
     existing_booking = await Booking.find_one({
@@ -104,7 +243,16 @@ async def create_booking(
         student_email=current_user.email,
         tutor_email=tutor.email
     )
-    await booking.insert()
+    try:
+        await booking.insert()
+    except Exception:
+        # Roll back slot reservation on booking insert failure.
+        await _release_slot(
+            tutor_id=booking_data.tutor_id,
+            scheduled_at=booking_data.scheduled_at,
+            duration_minutes=booking_data.duration_minutes,
+        )
+        raise
 
     # Create payment record with fee calculation
     try:
@@ -347,6 +495,11 @@ async def cancel_booking(
     booking.updated_at = datetime.utcnow()
 
     await booking.save()
+    await _release_slot(
+        tutor_id=booking.tutor_id,
+        scheduled_at=booking.scheduled_at,
+        duration_minutes=booking.duration_minutes,
+    )
 
     # Send notification to the other party
     try:

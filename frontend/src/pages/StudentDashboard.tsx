@@ -9,6 +9,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { bookingsAPI, materialsAPI } from '../services/api';
 import type { BookingResponse, MaterialResponse, RatingResponse } from '../services/api';
+import ChatInbox from '../components/ChatInbox';
 
 // Types for new features
 interface RecordedSession {
@@ -28,7 +29,7 @@ const StudentDashboard: React.FC = () => {
   const [bookings, setBookings] = useState<BookingResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [mainTab, setMainTab] = useState<'sessions' | 'recordings' | 'materials' | 'feedback'>('sessions');
+  const [mainTab, setMainTab] = useState<'sessions' | 'recordings' | 'materials' | 'feedback' | 'messages'>('sessions');
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
@@ -44,7 +45,7 @@ const StudentDashboard: React.FC = () => {
   // Handle tab query parameter from notifications
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && ['sessions', 'recordings', 'materials', 'feedback'].includes(tabParam)) {
+    if (tabParam && ['sessions', 'recordings', 'materials', 'feedback', 'messages'].includes(tabParam)) {
       setMainTab(tabParam as typeof mainTab);
     }
   }, [searchParams]);
@@ -162,6 +163,7 @@ const StudentDashboard: React.FC = () => {
             { id: 'recordings', label: 'Recorded Sessions', icon: Play },
             { id: 'materials', label: 'Study Materials', icon: BookOpen },
             { id: 'feedback', label: 'My Ratings', icon: Star },
+            { id: 'messages', label: 'Messages', icon: MessageSquare },
           ].map(tab => (
             <button
               key={tab.id}
@@ -709,6 +711,21 @@ const StudentDashboard: React.FC = () => {
                 </div>
               )}
             </div>
+          </motion.div>
+        )}
+
+        {/* Messages Tab */}
+        {mainTab === 'messages' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Messages</h2>
+              <p className="text-gray-600">Chat with tutors and ask your doubts.</p>
+            </div>
+            <ChatInbox mode="student" initialTutorUserId={searchParams.get('tutor_user_id')} />
           </motion.div>
         )}
       </div>

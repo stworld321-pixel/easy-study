@@ -23,6 +23,7 @@ class AvailabilitySettingsUpdate(BaseModel):
     advance_booking_days: Optional[int] = None
     min_notice_hours: Optional[int] = None
     is_accepting_students: Optional[bool] = None
+    group_session_capacity: Optional[int] = None
 
 class AvailabilityResponse(BaseModel):
     id: str
@@ -33,6 +34,10 @@ class AvailabilityResponse(BaseModel):
     advance_booking_days: int
     min_notice_hours: int
     is_accepting_students: bool
+    group_session_capacity: int
+    private_weekly_schedule: Dict[str, List[TimeSlotSchema]]
+    group_weekly_schedule: Dict[str, List[TimeSlotSchema]]
+    # Backward compatibility for existing frontend consumers.
     weekly_schedule: Dict[str, List[TimeSlotSchema]]
     created_at: datetime
     updated_at: datetime
@@ -58,8 +63,11 @@ class CalendarDayStatus(BaseModel):
     is_blocked: bool
     reason: Optional[str] = None
     slots_count: int = 0
+    time_slots: List[TimeSlotSchema] = Field(default_factory=list)
 
 class MonthCalendarResponse(BaseModel):
     year: int
     month: int
+    session_duration: int
+    buffer_time: int
     days: List[CalendarDayStatus]

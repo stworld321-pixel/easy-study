@@ -58,12 +58,12 @@ class EmailService:
 
             if self.use_ssl:
                 # Use SSL (port 465)
-                with smtplib.SMTP_SSL(self.host, self.port, context=context) as server:
+                with smtplib.SMTP_SSL(self.host, self.port, timeout=10, context=context) as server:
                     server.login(self.username, self.password)
                     server.sendmail(self.from_address, to_email, message.as_string())
             else:
                 # Use STARTTLS (port 587)
-                with smtplib.SMTP(self.host, self.port) as server:
+                with smtplib.SMTP(self.host, self.port, timeout=10) as server:
                     server.starttls(context=context)
                     server.login(self.username, self.password)
                     server.sendmail(self.from_address, to_email, message.as_string())

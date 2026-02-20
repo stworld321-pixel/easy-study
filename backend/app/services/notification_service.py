@@ -4,14 +4,28 @@ Notification Service - Handles creating and sending notifications
 
 from typing import Optional, List
 from datetime import datetime
+import asyncio
+import logging
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.websocket_manager import manager, NotificationPayload
 from app.services.email_service import email_service
 
+logger = logging.getLogger(__name__)
+
 
 class NotificationService:
     """Service for creating and managing notifications."""
+
+    @staticmethod
+    def _dispatch_background_email(coro, context: str) -> None:
+        async def _runner():
+            try:
+                await coro
+            except Exception:
+                logger.exception("Background email failed (%s)", context)
+
+        asyncio.create_task(_runner())
 
     @staticmethod
     async def create_notification(
@@ -124,7 +138,8 @@ class NotificationService:
         try:
             tutor = await User.get(tutor_user_id)
             if tutor:
-                await email_service.send_booking_notification(
+                NotificationService._dispatch_background_email(
+                    email_service.send_booking_notification(
                     to_email=tutor.email,
                     recipient_name=tutor.full_name,
                     other_party_name=student_name,
@@ -132,6 +147,8 @@ class NotificationService:
                     scheduled_at=scheduled_at,
                     is_new_booking=True,
                     is_for_tutor=True
+                    ),
+                    "notify_new_booking"
                 )
         except Exception as e:
             print(f"[Email] Failed to send new booking email: {e}")
@@ -165,13 +182,16 @@ class NotificationService:
         try:
             student = await User.get(student_user_id)
             if student:
-                await email_service.send_booking_confirmed_email(
+                NotificationService._dispatch_background_email(
+                    email_service.send_booking_confirmed_email(
                     to_email=student.email,
                     student_name=student.full_name,
                     tutor_name=tutor_name,
                     subject_name=subject,
                     scheduled_at=scheduled_at,
                     meeting_link=meeting_link
+                    ),
+                    "notify_booking_confirmed"
                 )
         except Exception as e:
             print(f"[Email] Failed to send booking confirmed email: {e}")
@@ -206,12 +226,15 @@ class NotificationService:
         try:
             user = await User.get(user_id)
             if user:
-                await email_service.send_booking_cancelled_email(
+                NotificationService._dispatch_background_email(
+                    email_service.send_booking_cancelled_email(
                     to_email=user.email,
                     recipient_name=user.full_name,
                     cancelled_by=cancelled_by_name,
                     subject_name=subject,
                     scheduled_at=scheduled_at
+                    ),
+                    "notify_booking_cancelled"
                 )
         except Exception as e:
             print(f"[Email] Failed to send booking cancelled email: {e}")
@@ -257,9 +280,12 @@ class NotificationService:
         try:
             tutor = await User.get(tutor_user_id)
             if tutor:
-                await email_service.send_tutor_verified_email(
-                    to_email=tutor.email,
-                    tutor_name=tutor.full_name
+                NotificationService._dispatch_background_email(
+                    email_service.send_tutor_verified_email(
+                        to_email=tutor.email,
+                        tutor_name=tutor.full_name
+                    ),
+                    "notify_tutor_verified"
                 )
         except Exception as e:
             print(f"[Email] Failed to send tutor verified email: {e}")

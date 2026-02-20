@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List
 from datetime import datetime, timedelta
 import calendar
@@ -26,7 +26,70 @@ async def get_or_create_availability(tutor_id: str) -> TutorAvailability:
     if not availability:
         availability = TutorAvailability(tutor_id=tutor_id)
         await availability.insert()
+    # Backfill legacy data into new split schedules.
+    if (not availability.private_weekly_schedule) and availability.weekly_schedule:
+        availability.private_weekly_schedule = availability.weekly_schedule
+    if availability.group_session_capacity < 1:
+        availability.group_session_capacity = 1
     return availability
+
+
+def _get_schedule_by_session_type(availability: TutorAvailability, session_type: str):
+    if session_type == "group":
+        return availability.group_weekly_schedule
+    return availability.private_weekly_schedule or availability.weekly_schedule
+
+
+def _parse_minutes(time_value: str) -> int:
+    try:
+        hour, minute = time_value.split(":")
+        return (int(hour) * 60) + int(minute)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Invalid time format: {time_value}. Use HH:MM")
+
+
+def _validate_internal_no_overlap(schedule_dict: dict, label: str) -> None:
+    for day, slots in schedule_dict.items():
+        normalized = []
+        for slot in slots:
+            start = _parse_minutes(slot["start_time"])
+            end = _parse_minutes(slot["end_time"])
+            if end <= start:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{label} schedule has invalid slot on {day}: end time must be after start time."
+                )
+            normalized.append((start, end))
+        normalized.sort(key=lambda x: x[0])
+        for i in range(1, len(normalized)):
+            prev_start, prev_end = normalized[i - 1]
+            curr_start, curr_end = normalized[i]
+            if curr_start < prev_end:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{label} schedule has overlapping slots on {day}."
+                )
+
+
+def _validate_cross_schedule_no_overlap(source_schedule: dict, other_schedule: dict, source_label: str, other_label: str) -> None:
+    for day, source_slots in source_schedule.items():
+        target_slots = other_schedule.get(day, [])
+        if not source_slots or not target_slots:
+            continue
+        for source_slot in source_slots:
+            s_start = _parse_minutes(source_slot["start_time"])
+            s_end = _parse_minutes(source_slot["end_time"])
+            for target_slot in target_slots:
+                t_start = _parse_minutes(target_slot["start_time"])
+                t_end = _parse_minutes(target_slot["end_time"])
+                if s_start < t_end and t_start < s_end:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            f"{source_label} and {other_label} schedules overlap on {day}. "
+                            "Set group slots outside private slots (before/after)."
+                        )
+                    )
 
 @router.get("/settings", response_model=AvailabilityResponse)
 async def get_availability_settings(current_user: User = Depends(get_current_user)):
@@ -46,7 +109,10 @@ async def get_availability_settings(current_user: User = Depends(get_current_use
         advance_booking_days=availability.advance_booking_days,
         min_notice_hours=availability.min_notice_hours,
         is_accepting_students=availability.is_accepting_students,
-        weekly_schedule=availability.weekly_schedule,
+        group_session_capacity=availability.group_session_capacity,
+        private_weekly_schedule=availability.private_weekly_schedule or availability.weekly_schedule,
+        group_weekly_schedule=availability.group_weekly_schedule,
+        weekly_schedule=availability.private_weekly_schedule or availability.weekly_schedule,
         created_at=availability.created_at,
         updated_at=availability.updated_at
     )
@@ -79,7 +145,10 @@ async def update_availability_settings(
         advance_booking_days=availability.advance_booking_days,
         min_notice_hours=availability.min_notice_hours,
         is_accepting_students=availability.is_accepting_students,
-        weekly_schedule=availability.weekly_schedule,
+        group_session_capacity=availability.group_session_capacity,
+        private_weekly_schedule=availability.private_weekly_schedule or availability.weekly_schedule,
+        group_weekly_schedule=availability.group_weekly_schedule,
+        weekly_schedule=availability.private_weekly_schedule or availability.weekly_schedule,
         created_at=availability.created_at,
         updated_at=availability.updated_at
     )
@@ -87,6 +156,7 @@ async def update_availability_settings(
 @router.put("/schedule", response_model=AvailabilityResponse)
 async def update_weekly_schedule(
     schedule: WeeklyScheduleUpdate,
+    session_type: str = Query(default="private", pattern="^(private|group)$"),
     current_user: User = Depends(get_current_user)
 ):
     """Update weekly availability schedule"""
@@ -107,7 +177,28 @@ async def update_weekly_schedule(
         "sunday": [slot.model_dump() for slot in schedule.sunday],
     }
 
-    availability.weekly_schedule = schedule_dict
+    _validate_internal_no_overlap(
+        schedule_dict,
+        "Group" if session_type == "group" else "Private"
+    )
+    other_schedule = (
+        availability.private_weekly_schedule or availability.weekly_schedule
+        if session_type == "group"
+        else availability.group_weekly_schedule
+    ) or {}
+    _validate_cross_schedule_no_overlap(
+        schedule_dict,
+        other_schedule,
+        "Group" if session_type == "group" else "Private",
+        "Private" if session_type == "group" else "Group",
+    )
+
+    if session_type == "group":
+        availability.group_weekly_schedule = schedule_dict
+    else:
+        availability.private_weekly_schedule = schedule_dict
+        # Keep legacy field in sync with private schedule.
+        availability.weekly_schedule = schedule_dict
     availability.updated_at = datetime.utcnow()
     await availability.save()
 
@@ -120,7 +211,10 @@ async def update_weekly_schedule(
         advance_booking_days=availability.advance_booking_days,
         min_notice_hours=availability.min_notice_hours,
         is_accepting_students=availability.is_accepting_students,
-        weekly_schedule=availability.weekly_schedule,
+        group_session_capacity=availability.group_session_capacity,
+        private_weekly_schedule=availability.private_weekly_schedule or availability.weekly_schedule,
+        group_weekly_schedule=availability.group_weekly_schedule,
+        weekly_schedule=availability.private_weekly_schedule or availability.weekly_schedule,
         created_at=availability.created_at,
         updated_at=availability.updated_at
     )
@@ -211,6 +305,7 @@ async def get_blocked_dates(
 async def get_month_calendar(
     year: int,
     month: int,
+    session_type: str = Query(default="private", pattern="^(private|group)$"),
     current_user: User = Depends(get_current_user)
 ):
     """Get calendar view for a specific month"""
@@ -250,7 +345,8 @@ async def get_month_calendar(
         reason = blocked_dict.get(date_str)
 
         # Check if has availability slots for this day
-        day_slots = availability.weekly_schedule.get(day_of_week, [])
+        session_schedule = _get_schedule_by_session_type(availability, session_type)
+        day_slots = session_schedule.get(day_of_week, [])
         slots_count = len(day_slots)
         is_available = slots_count > 0 and not is_blocked
 
@@ -259,12 +355,15 @@ async def get_month_calendar(
             is_available=is_available,
             is_blocked=is_blocked,
             reason=reason,
-            slots_count=slots_count
+            slots_count=slots_count,
+            time_slots=day_slots if is_available else []
         ))
 
     return MonthCalendarResponse(
         year=year,
         month=month,
+        session_duration=availability.session_duration,
+        buffer_time=availability.buffer_time,
         days=days
     )
 
@@ -272,16 +371,22 @@ async def get_month_calendar(
 async def get_tutor_public_calendar(
     tutor_id: str,
     year: int,
-    month: int
+    month: int,
+    session_type: str = Query(default="private", pattern="^(private|group)$")
 ):
     """Get public calendar view for a tutor (for students to see available slots)"""
     tutor = await TutorProfile.get(tutor_id)
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor not found")
 
+    if session_type == "group" and not tutor.offers_group:
+        return MonthCalendarResponse(year=year, month=month, session_duration=60, buffer_time=0, days=[])
+    if session_type == "private" and not tutor.offers_private:
+        return MonthCalendarResponse(year=year, month=month, session_duration=60, buffer_time=0, days=[])
+
     availability = await TutorAvailability.find_one(TutorAvailability.tutor_id == tutor_id)
     if not availability:
-        return MonthCalendarResponse(year=year, month=month, days=[])
+        return MonthCalendarResponse(year=year, month=month, session_duration=60, buffer_time=0, days=[])
 
     # Get blocked dates for the month
     start_date = datetime(year, month, 1)
@@ -313,7 +418,8 @@ async def get_tutor_public_calendar(
         is_blocked = date_str in blocked_set or date_obj.date() < today
 
         # Check if has availability slots for this day
-        day_slots = availability.weekly_schedule.get(day_of_week, [])
+        session_schedule = _get_schedule_by_session_type(availability, session_type)
+        day_slots = session_schedule.get(day_of_week, [])
         slots_count = len(day_slots)
         is_available = slots_count > 0 and not is_blocked and availability.is_accepting_students
 
@@ -322,11 +428,14 @@ async def get_tutor_public_calendar(
             is_available=is_available,
             is_blocked=is_blocked,
             reason=None,  # Don't expose reasons to students
-            slots_count=slots_count if is_available else 0
+            slots_count=slots_count if is_available else 0,
+            time_slots=day_slots if is_available else []
         ))
 
     return MonthCalendarResponse(
         year=year,
         month=month,
+        session_duration=availability.session_duration,
+        buffer_time=availability.buffer_time,
         days=days
     )

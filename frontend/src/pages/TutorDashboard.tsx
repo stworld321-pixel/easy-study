@@ -12,6 +12,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { tutorsAPI, availabilityAPI, bookingsAPI, withdrawalAPI, materialsAPI, googleCalendarAPI } from '../services/api';
 import ImageUpload from '../components/ImageUpload';
+import ChatInbox from '../components/ChatInbox';
 import type { TutorProfile } from '../types';
 import type { AvailabilitySettings, WeeklySchedule, TimeSlot, CalendarDay, BlockedDate, BookingResponse, TutorStats, WithdrawalResponse, MaterialResponse, AssignmentResponse, RatingResponse, BookedStudent } from '../services/api';
 
@@ -34,12 +35,12 @@ const LANGUAGES_LIST = ['English', 'Spanish', 'French', 'German', 'Mandarin', 'H
 const TutorDashboard: React.FC = () => {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<'profile' | 'availability' | 'calendar' | 'earnings' | 'materials' | 'assignments' | 'feedback'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'availability' | 'calendar' | 'earnings' | 'materials' | 'assignments' | 'feedback' | 'messages'>('profile');
 
   // Handle tab query parameter from notifications
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && ['profile', 'availability', 'calendar', 'earnings', 'materials', 'assignments', 'feedback'].includes(tabParam)) {
+    if (tabParam && ['profile', 'availability', 'calendar', 'earnings', 'materials', 'assignments', 'feedback', 'messages'].includes(tabParam)) {
       setActiveTab(tabParam as typeof activeTab);
     }
 
@@ -74,10 +75,16 @@ const TutorDashboard: React.FC = () => {
 
   // Availability state
   const [, setAvailability] = useState<AvailabilitySettings | null>(null);
-  const [weeklySchedule, setWeeklySchedule] = useState<WeeklySchedule>({
+  const [privateWeeklySchedule, setPrivateWeeklySchedule] = useState<WeeklySchedule>({
     monday: [], tuesday: [], wednesday: [], thursday: [],
     friday: [], saturday: [], sunday: []
   });
+  const [groupWeeklySchedule, setGroupWeeklySchedule] = useState<WeeklySchedule>({
+    monday: [], tuesday: [], wednesday: [], thursday: [],
+    friday: [], saturday: [], sunday: []
+  });
+  const [scheduleMode, setScheduleMode] = useState<'private' | 'group'>('private');
+  const [groupSessionCapacity, setGroupSessionCapacity] = useState<number>(10);
 
   // Calendar state
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -291,7 +298,12 @@ const TutorDashboard: React.FC = () => {
 
       if (availabilityData) {
         setAvailability(availabilityData);
-        setWeeklySchedule(availabilityData.weekly_schedule);
+        setPrivateWeeklySchedule(availabilityData.private_weekly_schedule || availabilityData.weekly_schedule);
+        setGroupWeeklySchedule(availabilityData.group_weekly_schedule || {
+          monday: [], tuesday: [], wednesday: [], thursday: [],
+          friday: [], saturday: [], sunday: []
+        });
+        setGroupSessionCapacity(availabilityData.group_session_capacity || 10);
       }
 
       setBlockedDates(blockedData.blocked_dates);
@@ -340,12 +352,17 @@ const TutorDashboard: React.FC = () => {
   const handleSaveAvailability = async () => {
     setSaving(true);
     try {
-      await availabilityAPI.updateSchedule(weeklySchedule);
+      const scheduleToSave = scheduleMode === 'private' ? privateWeeklySchedule : groupWeeklySchedule;
+      await availabilityAPI.updateSchedule(scheduleToSave, scheduleMode);
+      await availabilityAPI.updateSettings({
+        group_session_capacity: Math.max(1, Number(groupSessionCapacity) || 1),
+      } as Partial<AvailabilitySettings>);
       setMessage({ type: 'success', text: 'Availability saved successfully!' });
       setTimeout(() => setMessage(null), 3000);
       fetchCalendar();
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to save availability' });
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setMessage({ type: 'error', text: err.response?.data?.detail || 'Failed to save availability' });
     } finally {
       setSaving(false);
     }
@@ -353,21 +370,42 @@ const TutorDashboard: React.FC = () => {
 
   const addTimeSlot = (day: keyof WeeklySchedule) => {
     const newSlot: TimeSlot = { start_time: '09:00', end_time: '17:00' };
-    setWeeklySchedule(prev => ({
+    if (scheduleMode === 'private') {
+      setPrivateWeeklySchedule(prev => ({
+        ...prev,
+        [day]: [...prev[day], newSlot]
+      }));
+      return;
+    }
+    setGroupWeeklySchedule(prev => ({
       ...prev,
       [day]: [...prev[day], newSlot]
     }));
   };
 
   const removeTimeSlot = (day: keyof WeeklySchedule, index: number) => {
-    setWeeklySchedule(prev => ({
+    if (scheduleMode === 'private') {
+      setPrivateWeeklySchedule(prev => ({
+        ...prev,
+        [day]: prev[day].filter((_, i) => i !== index)
+      }));
+      return;
+    }
+    setGroupWeeklySchedule(prev => ({
       ...prev,
       [day]: prev[day].filter((_, i) => i !== index)
     }));
   };
 
   const updateTimeSlot = (day: keyof WeeklySchedule, index: number, field: 'start_time' | 'end_time', value: string) => {
-    setWeeklySchedule(prev => ({
+    if (scheduleMode === 'private') {
+      setPrivateWeeklySchedule(prev => ({
+        ...prev,
+        [day]: prev[day].map((slot, i) => i === index ? { ...slot, [field]: value } : slot)
+      }));
+      return;
+    }
+    setGroupWeeklySchedule(prev => ({
       ...prev,
       [day]: prev[day].map((slot, i) => i === index ? { ...slot, [field]: value } : slot)
     }));
@@ -638,6 +676,7 @@ const TutorDashboard: React.FC = () => {
             { id: 'materials', label: 'Materials', icon: FileText },
             { id: 'assignments', label: 'Assignments', icon: ClipboardList },
             { id: 'feedback', label: 'Feedback', icon: MessageSquare },
+            { id: 'messages', label: 'Messages', icon: MessageSquare },
             { id: 'earnings', label: 'Earnings', icon: Wallet },
           ].map(tab => (
             <button
@@ -1035,8 +1074,46 @@ const TutorDashboard: React.FC = () => {
             </h2>
 
             <p className="text-gray-600 mb-8">
-              Define your regular working hours for each day of the week. Students will be able to book sessions during these time slots.
+              Define separate weekly schedules for private and group sessions.
             </p>
+
+            <div className="mb-6 grid sm:grid-cols-2 gap-3">
+              <button
+                onClick={() => setScheduleMode('private')}
+                className={`px-4 py-3 rounded-xl border font-medium transition-colors ${
+                  scheduleMode === 'private'
+                    ? 'bg-primary-50 border-primary-300 text-primary-700'
+                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Private Session Schedule
+              </button>
+              <button
+                onClick={() => setScheduleMode('group')}
+                className={`px-4 py-3 rounded-xl border font-medium transition-colors ${
+                  scheduleMode === 'group'
+                    ? 'bg-primary-50 border-primary-300 text-primary-700'
+                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                Group Session Schedule
+              </button>
+            </div>
+
+            {scheduleMode === 'group' && (
+              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Group Session Capacity (students per slot)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  value={groupSessionCapacity}
+                  onChange={(e) => setGroupSessionCapacity(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-full sm:w-56 px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                />
+              </div>
+            )}
 
             <div className="space-y-4">
               {DAYS_OF_WEEK.map((day, index) => (
@@ -1046,10 +1123,10 @@ const TutorDashboard: React.FC = () => {
                   </div>
 
                   <div className="flex-1 space-y-2">
-                    {weeklySchedule[day].length === 0 ? (
+                    {(scheduleMode === 'private' ? privateWeeklySchedule[day] : groupWeeklySchedule[day]).length === 0 ? (
                       <div className="text-gray-400 italic py-2">No availability set</div>
                     ) : (
-                      weeklySchedule[day].map((slot, slotIndex) => (
+                      (scheduleMode === 'private' ? privateWeeklySchedule[day] : groupWeeklySchedule[day]).map((slot, slotIndex) => (
                         <div key={slotIndex} className="flex items-center gap-3">
                           <input
                             type="time"
@@ -1096,7 +1173,7 @@ const TutorDashboard: React.FC = () => {
               ) : (
                 <Save className="w-5 h-5" />
               )}
-              Save Weekly Schedule
+              Save {scheduleMode === 'private' ? 'Private' : 'Group'} Schedule
             </button>
           </motion.div>
         )}
@@ -1555,129 +1632,132 @@ const TutorDashboard: React.FC = () => {
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="bg-white rounded-2xl p-6 w-full max-w-lg"
+                  className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col"
                 >
-                  <h3 className="text-xl font-bold text-gray-900 mb-4">Add New Material</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
-                      <input
-                        type="text"
-                        value={materialForm.title}
-                        onChange={(e) => setMaterialForm({ ...materialForm, title: e.target.value })}
-                        placeholder="e.g., Introduction to Calculus"
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
-                      <select
-                        value={materialForm.subject}
-                        onChange={(e) => setMaterialForm({ ...materialForm, subject: e.target.value })}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
-                      >
-                        <option value="">Select Subject</option>
-                        {profile.subjects?.map(s => (
-                          <option key={s} value={s}>{s}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
-                      <textarea
-                        value={materialForm.description}
-                        onChange={(e) => setMaterialForm({ ...materialForm, description: e.target.value })}
-                        placeholder="Brief description of the material..."
-                        rows={3}
-                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Share With</label>
-                      <div className="space-y-3">
-                        <label className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
+                  <div className="px-6 pt-6">
+                    <h3 className="text-xl font-bold text-gray-900 mb-4">Add New Material</h3>
+                  </div>
+                  <div className="px-6 overflow-y-auto flex-1">
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Title</label>
+                        <input
+                          type="text"
+                          value={materialForm.title}
+                          onChange={(e) => setMaterialForm({ ...materialForm, title: e.target.value })}
+                          placeholder="e.g., Introduction to Calculus"
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Subject</label>
+                        <select
+                          value={materialForm.subject}
+                          onChange={(e) => setMaterialForm({ ...materialForm, subject: e.target.value })}
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        >
+                          <option value="">Select Subject</option>
+                          {profile.subjects?.map(s => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                        <textarea
+                          value={materialForm.description}
+                          onChange={(e) => setMaterialForm({ ...materialForm, description: e.target.value })}
+                          placeholder="Brief description of the material..."
+                          rows={3}
+                          className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Share With</label>
+                        <div className="space-y-3">
+                          <label className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
+                            <input
+                              type="radio"
+                              name="shareWith"
+                              checked={shareWithAll}
+                              onChange={() => {
+                                setShareWithAll(true);
+                                setSelectedStudents([]);
+                              }}
+                              className="w-4 h-4 text-primary-600"
+                            />
+                            <div>
+                              <span className="font-medium text-gray-900">All Students</span>
+                              <p className="text-xs text-gray-500">Share with all students who booked with you</p>
+                            </div>
+                          </label>
+                          <label className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
+                            <input
+                              type="radio"
+                              name="shareWith"
+                              checked={!shareWithAll}
+                              onChange={() => setShareWithAll(false)}
+                              className="w-4 h-4 text-primary-600"
+                            />
+                            <div>
+                              <span className="font-medium text-gray-900">Specific Students</span>
+                              <p className="text-xs text-gray-500">Select individual students to share with</p>
+                            </div>
+                          </label>
+                          {!shareWithAll && (
+                            <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                              {bookedStudents.length === 0 ? (
+                                <p className="text-sm text-gray-500 text-center py-2">No students have booked with you yet</p>
+                              ) : (
+                                <div className="space-y-2 max-h-40 overflow-y-auto">
+                                  {bookedStudents.map(student => (
+                                    <label key={student.id} className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded-lg cursor-pointer">
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedStudents.includes(student.id)}
+                                        onChange={(e) => {
+                                          if (e.target.checked) {
+                                            setSelectedStudents([...selectedStudents, student.id]);
+                                          } else {
+                                            setSelectedStudents(selectedStudents.filter(id => id !== student.id));
+                                          }
+                                        }}
+                                        className="w-4 h-4 text-primary-600 rounded"
+                                      />
+                                      <div>
+                                        <span className="text-sm font-medium text-gray-900">{student.name}</span>
+                                      </div>
+                                    </label>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Upload File (PDF, DOC, etc.)</label>
+                        <label className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-primary-400 transition-colors cursor-pointer block">
                           <input
-                            type="radio"
-                            name="shareWith"
-                            checked={shareWithAll}
-                            onChange={() => {
-                              setShareWithAll(true);
-                              setSelectedStudents([]);
-                            }}
-                            className="w-4 h-4 text-primary-600"
+                            type="file"
+                            className="hidden"
+                            accept=".pdf,.doc,.docx,.ppt,.pptx"
+                            onChange={(e) => setMaterialFile(e.target.files?.[0] || null)}
                           />
-                          <div>
-                            <span className="font-medium text-gray-900">All Students</span>
-                            <p className="text-xs text-gray-500">Share with all students who booked with you</p>
-                          </div>
+                          <Upload className="w-10 h-10 text-gray-400 mx-auto mb-2" />
+                          {materialFile ? (
+                            <p className="text-sm text-primary-600 font-medium">{materialFile.name}</p>
+                          ) : (
+                            <>
+                              <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
+                              <p className="text-xs text-gray-400 mt-1">PDF, DOC, DOCX, PPT up to 10MB</p>
+                            </>
+                          )}
                         </label>
-                        <label className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
-                          <input
-                            type="radio"
-                            name="shareWith"
-                            checked={!shareWithAll}
-                            onChange={() => setShareWithAll(false)}
-                            className="w-4 h-4 text-primary-600"
-                          />
-                          <div>
-                            <span className="font-medium text-gray-900">Specific Students</span>
-                            <p className="text-xs text-gray-500">Select individual students to share with</p>
-                          </div>
-                        </label>
-                        {!shareWithAll && (
-                          <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                            {bookedStudents.length === 0 ? (
-                              <p className="text-sm text-gray-500 text-center py-2">No students have booked with you yet</p>
-                            ) : (
-                              <div className="space-y-2 max-h-40 overflow-y-auto">
-                                {bookedStudents.map(student => (
-                                  <label key={student.id} className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded-lg cursor-pointer">
-                                    <input
-                                      type="checkbox"
-                                      checked={selectedStudents.includes(student.id)}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          setSelectedStudents([...selectedStudents, student.id]);
-                                        } else {
-                                          setSelectedStudents(selectedStudents.filter(id => id !== student.id));
-                                        }
-                                      }}
-                                      className="w-4 h-4 text-primary-600 rounded"
-                                    />
-                                    <div>
-                                      <span className="text-sm font-medium text-gray-900">{student.name}</span>
-                                      <span className="text-xs text-gray-500 ml-2">{student.email}</span>
-                                    </div>
-                                  </label>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
                       </div>
                     </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">Upload File (PDF, DOC, etc.)</label>
-                      <label className="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:border-primary-400 transition-colors cursor-pointer block">
-                        <input
-                          type="file"
-                          className="hidden"
-                          accept=".pdf,.doc,.docx,.ppt,.pptx"
-                          onChange={(e) => setMaterialFile(e.target.files?.[0] || null)}
-                        />
-                        <Upload className="w-10 h-10 text-gray-400 mx-auto mb-2" />
-                        {materialFile ? (
-                          <p className="text-sm text-primary-600 font-medium">{materialFile.name}</p>
-                        ) : (
-                          <>
-                            <p className="text-sm text-gray-600">Click to upload or drag and drop</p>
-                            <p className="text-xs text-gray-400 mt-1">PDF, DOC, DOCX, PPT up to 10MB</p>
-                          </>
-                        )}
-                      </label>
-                    </div>
                   </div>
-                  <div className="flex gap-3 mt-6">
+                  <div className="flex gap-3 p-6 border-t border-gray-100 bg-white">
                     <button
                       onClick={() => {
                         setShowMaterialForm(false);
@@ -2106,6 +2186,21 @@ const TutorDashboard: React.FC = () => {
                 </div>
               )}
             </div>
+          </motion.div>
+        )}
+
+        {/* Messages Tab */}
+        {activeTab === 'messages' && (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="space-y-6"
+          >
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900">Messages</h2>
+              <p className="text-gray-600">Chat with your students.</p>
+            </div>
+            <ChatInbox mode="tutor" />
           </motion.div>
         )}
 
