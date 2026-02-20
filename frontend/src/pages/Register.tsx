@@ -53,7 +53,7 @@ const Register: React.FC = () => {
 
     try {
       await register({
-        email: formData.email,
+        email: formData.email.trim().toLowerCase(),
         password: formData.password,
         full_name: formData.fullName,
         role: formData.role,

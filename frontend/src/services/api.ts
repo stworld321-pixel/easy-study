@@ -1,10 +1,12 @@
 import axios from 'axios';
 import type { AuthResponse, TutorProfile, Subject, Review } from '../types';
 
-// Use production URL if on production domain, otherwise use env variable or localhost.
-const isProduction = typeof window !== 'undefined' && window.location.hostname === 'easystudy.cloud';
-export const API_URL = isProduction
-  ? 'https://easystudy.cloud/api'
+// Resolve API base URL from current host in production, fallback to env/local for development.
+const productionHosts = new Set(['easystudy.cloud', 'www.easystudy.cloud']);
+const isProductionHost =
+  typeof window !== 'undefined' && productionHosts.has(window.location.hostname);
+export const API_URL = isProductionHost
+  ? `${window.location.origin}/api`
   : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api');
 export const WS_URL = API_URL.replace('http://', 'ws://').replace('https://', 'wss://');
 
