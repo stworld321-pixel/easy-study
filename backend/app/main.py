@@ -8,16 +8,19 @@ import traceback
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app.state.database_connected = False
     if settings.SECRET_KEY == "change-me-in-env":
         print("WARNING: SECRET_KEY is using the default value. Set a strong SECRET_KEY in environment variables.")
     try:
         await connect_to_mongo()
         print("Database connected successfully")
+        app.state.database_connected = True
     except Exception as e:
         print(f"Failed to connect to database: {e}")
         traceback.print_exc()
     yield
     await close_mongo_connection()
+    app.state.database_connected = False
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -56,6 +59,7 @@ async def debug_status():
     status = {
         "app": "running",
         "database": "unknown",
+        "database_connected_flag": getattr(app.state, "database_connected", False),
         "config": {
             "database_name": settings.DATABASE_NAME,
             "minio_endpoint": settings.MINIO_ENDPOINT,

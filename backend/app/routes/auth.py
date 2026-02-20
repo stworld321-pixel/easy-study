@@ -11,6 +11,8 @@ from app.core.config import settings
 import traceback
 import httpx
 from typing import Optional
+from pymongo.errors import DuplicateKeyError, PyMongoError
+from beanie.exceptions import CollectionWasNotInitialized
 
 router = APIRouter()
 security = HTTPBearer()
@@ -82,10 +84,24 @@ async def register(user_data: UserCreate):
         )
     except HTTPException:
         raise
+    except DuplicateKeyError:
+        # Handles race-condition/DB-level unique index conflicts on email.
+        raise HTTPException(status_code=400, detail="Email already registered")
+    except CollectionWasNotInitialized:
+        raise HTTPException(status_code=503, detail="Database unavailable. Beanie models are not initialized.")
+    except PyMongoError:
+        raise HTTPException(status_code=503, detail="Database unavailable. Check MongoDB connection.")
     except Exception as e:
         print(f"Registration error: {str(e)}")
         print(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
+        error_text = str(e).strip().lower()
+        if "duplicate key" in error_text and "email" in error_text:
+            raise HTTPException(status_code=400, detail="Email already registered")
+        if "valid email" in error_text:
+            raise HTTPException(status_code=400, detail="Please enter a valid email address")
+        if settings.DEBUG:
+            raise HTTPException(status_code=500, detail=f"Registration failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Registration failed. Please try again.")
 
 @router.post("/login", response_model=Token)
 async def login(credentials: UserLogin):

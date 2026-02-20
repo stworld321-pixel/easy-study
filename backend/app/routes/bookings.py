@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 import logging
 from pydantic import BaseModel
-from app.models.booking import Booking, Review, BookingStatus
+from app.models.booking import Booking, Review, BookingStatus, SessionType
 from app.models.tutor import TutorProfile
 from app.models.user import User
 from app.schemas.booking import BookingCreate, BookingUpdate, BookingResponse, ReviewCreate, ReviewResponse
@@ -53,6 +53,25 @@ async def create_booking(
     tutor = await TutorProfile.get(booking_data.tutor_id)
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor not found")
+
+    # Student email is required for Google Meet attendee safety controls.
+    if not current_user.email:
+        raise HTTPException(
+            status_code=400,
+            detail="A valid student email is required to create a booking."
+        )
+
+    # Prevent duplicate active bookings for the same slot by the same student.
+    existing_booking = await Booking.find_one({
+        "student_id": str(current_user.id),
+        "tutor_id": booking_data.tutor_id,
+        "session_type": booking_data.session_type.value,
+        "scheduled_at": booking_data.scheduled_at,
+        "duration_minutes": booking_data.duration_minutes,
+        "status": {"$ne": BookingStatus.CANCELLED.value}
+    })
+    if existing_booking:
+        raise HTTPException(status_code=400, detail="You already booked this timeslot.")
 
     # Get the correct hourly rate based on session type
     if booking_data.session_type.value == "group":
@@ -178,17 +197,49 @@ async def confirm_booking(
     if booking.status == BookingStatus.CONFIRMED:
         raise HTTPException(status_code=400, detail="Booking is already confirmed")
 
-    # Create Google Meet event on tutor's connected Google Calendar
+    # A valid student email is required so only invited users can join easily in Meet.
+    if not booking.student_email:
+        raise HTTPException(
+            status_code=400,
+            detail="Booking is missing student email. Please ask the student to update profile email."
+        )
+
+    meet_result = None
     session_type_str = "1-on-1" if booking.session_type.value == "private" else "Group"
-    meet_result = await tutor_google_calendar_service.create_meet_event_for_tutor(
-        tutor=tutor,
-        title=f"{booking.subject} Tutoring Session - {session_type_str}",
-        description=f"Tutoring session with {booking.tutor_name}\nStudent: {booking.student_name}\nSubject: {booking.subject}\n\nNotes: {booking.notes or 'None'}",
-        start_time=booking.scheduled_at,
-        duration_minutes=booking.duration_minutes,
-        tutor_email=booking.tutor_email,
-        student_email=booking.student_email
-    )
+
+    # For group sessions, reuse the same event/link for the same tutor+timeslot and add attendee.
+    if booking.session_type == SessionType.GROUP:
+        existing_group_booking = await Booking.find_one({
+            "_id": {"$ne": booking.id},
+            "tutor_id": booking.tutor_id,
+            "session_type": SessionType.GROUP.value,
+            "scheduled_at": booking.scheduled_at,
+            "duration_minutes": booking.duration_minutes,
+            "status": BookingStatus.CONFIRMED.value,
+            "google_event_id": {"$ne": None}
+        })
+
+        if existing_group_booking and existing_group_booking.google_event_id:
+            meet_result = await tutor_google_calendar_service.add_attendee_to_event_for_tutor(
+                tutor=tutor,
+                event_id=existing_group_booking.google_event_id,
+                attendee_email=booking.student_email
+            )
+            # Reuse shared group link/event from the existing confirmed booking.
+            booking.google_event_id = existing_group_booking.google_event_id
+            booking.meeting_link = existing_group_booking.meeting_link or (meet_result or {}).get("meet_link")
+
+    # Private sessions (or first group slot confirmation) create a new event.
+    if not meet_result:
+        meet_result = await tutor_google_calendar_service.create_meet_event_for_tutor(
+            tutor=tutor,
+            title=f"{booking.subject} Tutoring Session - {session_type_str}",
+            description=f"Tutoring session with {booking.tutor_name}\nStudent: {booking.student_name}\nSubject: {booking.subject}\n\nNotes: {booking.notes or 'None'}",
+            start_time=booking.scheduled_at,
+            duration_minutes=booking.duration_minutes,
+            tutor_email=booking.tutor_email,
+            student_email=booking.student_email
+        )
 
     # Update booking with Meet link
     booking.status = BookingStatus.CONFIRMED
@@ -205,8 +256,8 @@ async def confirm_booking(
         meet_result = fallback_result if fallback_result else meet_result
 
     if meet_result:
-        booking.meeting_link = meet_result.get('meet_link')
-        booking.google_event_id = meet_result.get('event_id')
+        booking.meeting_link = booking.meeting_link or meet_result.get('meet_link')
+        booking.google_event_id = booking.google_event_id or meet_result.get('event_id')
     booking.updated_at = datetime.utcnow()
 
     await booking.save()

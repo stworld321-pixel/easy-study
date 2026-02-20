@@ -125,5 +125,66 @@ class TutorGoogleCalendarService:
         except Exception:
             return fallback
 
+    @staticmethod
+    async def add_attendee_to_event_for_tutor(
+        tutor: TutorProfile,
+        event_id: str,
+        attendee_email: str,
+    ) -> dict[str, Any]:
+        """
+        Add an attendee to an existing tutor-owned Google Calendar event.
+        Returns event details (including Meet link) on success, or fallback payload on failure.
+        """
+        fallback = {
+            "event_id": event_id,
+            "meet_link": None,
+            "html_link": None,
+            "status": "pending_meet_link",
+        }
+
+        if not tutor.google_calendar_connected:
+            return fallback
+
+        creds = TutorGoogleCalendarService._credentials_from_tutor(tutor)
+        if not creds:
+            return fallback
+
+        try:
+            creds = await TutorGoogleCalendarService._refresh_if_needed(tutor, creds)
+            service = build("calendar", "v3", credentials=creds)
+
+            event = service.events().get(calendarId="primary", eventId=event_id).execute()
+            attendees = event.get("attendees", [])
+            attendee_email_normalized = attendee_email.strip().lower()
+
+            existing = {a.get("email", "").strip().lower() for a in attendees}
+            if attendee_email_normalized and attendee_email_normalized not in existing:
+                attendees.append({"email": attendee_email_normalized})
+                event["attendees"] = attendees
+                event = service.events().update(
+                    calendarId="primary",
+                    eventId=event_id,
+                    body=event,
+                    sendUpdates="all",
+                ).execute()
+
+            meet_link = None
+            conference_data = event.get("conferenceData", {})
+            for entry in conference_data.get("entryPoints", []):
+                if entry.get("entryPointType") == "video":
+                    meet_link = entry.get("uri")
+                    break
+
+            return {
+                "event_id": event.get("id"),
+                "meet_link": meet_link,
+                "html_link": event.get("htmlLink"),
+                "status": "updated",
+            }
+        except HttpError:
+            return fallback
+        except Exception:
+            return fallback
+
 
 tutor_google_calendar_service = TutorGoogleCalendarService()

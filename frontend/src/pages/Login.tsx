@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Mail, Lock, Eye, EyeOff, BookOpen, ArrowRight, Info } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, ArrowRight, Info } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 interface LocationState {
@@ -71,9 +71,7 @@ const Login: React.FC = () => {
         >
           {/* Logo */}
           <Link to="/" className="flex items-center justify-center space-x-3 mb-8">
-            <div className="w-12 h-12 bg-gradient-to-br from-primary-600 to-secondary-600 rounded-xl flex items-center justify-center">
-              <BookOpen className="w-7 h-7 text-white" />
-            </div>
+            <img src="/logo.svg" alt="Zeal Catalyst logo" className="w-12 h-12 rounded-xl" />
             <span className="text-2xl font-bold gradient-text">Zeal Catalyst</span>
           </Link>
 

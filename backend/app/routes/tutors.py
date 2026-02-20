@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import Optional, List
+import logging
+from datetime import datetime
 from app.models.tutor import TutorProfile
 from app.models.user import User, UserRole
 from app.models.booking import Review
@@ -8,6 +10,7 @@ from app.schemas.booking import ReviewResponse
 from app.routes.auth import get_current_user
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 @router.get("", response_model=List[TutorProfileResponse])
 async def get_tutors(
@@ -53,40 +56,47 @@ async def get_tutors(
 
         tutors = await TutorProfile.find(query).sort(sort_field).skip(skip).limit(limit).to_list()
 
-        return [
-            TutorProfileResponse(
-                id=str(t.id),
-                user_id=t.user_id,
-                full_name=t.full_name or "Unknown",
-                email=t.email or "",
-                avatar=t.avatar,
-                headline=t.headline,
-                bio=t.bio,
-                experience_years=t.experience_years or 0,
-                education=t.education,
-                certifications=t.certifications or [],
-                hourly_rate=t.hourly_rate or 0,
-                currency=t.currency or "INR",
-                languages=t.languages or [],
-                teaching_style=t.teaching_style,
-                subjects=t.subjects or [],
-                country=t.country,
-                city=t.city,
-                timezone=t.timezone,
-                offers_private=t.offers_private if t.offers_private is not None else True,
-                offers_group=t.offers_group if t.offers_group is not None else False,
-                total_students=t.total_students or 0,
-                total_lessons=t.total_lessons or 0,
-                rating=t.rating or 0,
-                total_reviews=t.total_reviews or 0,
-                is_verified=t.is_verified if t.is_verified is not None else False,
-                is_featured=t.is_featured if t.is_featured is not None else False,
-                is_available=t.is_available if t.is_available is not None else True,
-                created_at=t.created_at
-            )
-            for t in tutors
-        ]
+        results: List[TutorProfileResponse] = []
+        for t in tutors:
+            try:
+                results.append(
+                    TutorProfileResponse(
+                        id=str(t.id),
+                        user_id=str(t.user_id),
+                        full_name=t.full_name or "Unknown",
+                        email=t.email or "",
+                        avatar=t.avatar,
+                        headline=t.headline,
+                        bio=t.bio,
+                        experience_years=int(t.experience_years or 0),
+                        education=t.education,
+                        certifications=t.certifications or [],
+                        hourly_rate=float(t.hourly_rate or 0),
+                        currency=t.currency or "INR",
+                        languages=t.languages or [],
+                        teaching_style=t.teaching_style,
+                        subjects=t.subjects or [],
+                        country=t.country,
+                        city=t.city,
+                        timezone=t.timezone,
+                        offers_private=t.offers_private if t.offers_private is not None else True,
+                        offers_group=t.offers_group if t.offers_group is not None else False,
+                        total_students=int(t.total_students or 0),
+                        total_lessons=int(t.total_lessons or 0),
+                        rating=float(t.rating or 0),
+                        total_reviews=int(t.total_reviews or 0),
+                        is_verified=t.is_verified if t.is_verified is not None else False,
+                        is_featured=t.is_featured if t.is_featured is not None else False,
+                        is_available=t.is_available if t.is_available is not None else True,
+                        created_at=t.created_at or datetime.utcnow()
+                    )
+                )
+            except Exception:
+                logger.exception("Skipping invalid tutor record id=%s", getattr(t, "id", "unknown"))
+
+        return results
     except Exception:
+        logger.exception("Failed to fetch tutors")
         raise HTTPException(status_code=500, detail="Failed to fetch tutors")
 
 @router.get("/featured", response_model=List[TutorProfileResponse])

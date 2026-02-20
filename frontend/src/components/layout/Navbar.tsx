@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Menu, X, ChevronDown, User, LogOut, BookOpen, Globe } from 'lucide-react';
+import { Menu, X, ChevronDown, User, LogOut, Globe } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import type { CurrencyCode } from '../../context/CurrencyContext';
@@ -25,9 +25,7 @@ const Navbar: React.FC = () => {
         <div className="flex justify-between items-center h-20">
           {/* Logo */}
           <Link to="/" className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-primary-600 to-secondary-600 rounded-xl flex items-center justify-center">
-              <BookOpen className="w-6 h-6 text-white" />
-            </div>
+            <img src="/logo.svg" alt="Zeal Catalyst logo" className="w-10 h-10 rounded-xl" />
             <span className="text-2xl font-bold gradient-text">Zeal Catalyst</span>
           </Link>
 

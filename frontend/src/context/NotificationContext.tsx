@@ -161,7 +161,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           if (Notification.permission === 'granted') {
             new Notification(message.data.title, {
               body: message.data.message,
-              icon: '/favicon.ico',
+              icon: '/logo.svg',
             });
           }
           break;
