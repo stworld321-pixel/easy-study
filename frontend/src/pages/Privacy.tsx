@@ -69,12 +69,34 @@ const Privacy: React.FC = () => {
             </div>
 
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-3">5. Cookies</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">5. Google Data Usage (Google Calendar Integration)</h2>
+              <p>If you are a tutor and choose to connect your Google account, EasyStudy requests limited Google Calendar access only to support tutoring session scheduling.</p>
+              <ul className="list-disc pl-6 mt-2 space-y-1">
+                <li><strong>What we access:</strong> We access only the minimum Google Calendar data required to create, update, and delete tutoring session events, generate Google Meet links, and add booked student attendee emails when applicable.</li>
+                <li><strong>What we do not access:</strong> We do not use Google data for advertising, we do not sell Google user data, and we do not access unrelated Google services.</li>
+                <li><strong>How data is used:</strong> Google Calendar data is used only for scheduling and online session management features inside EasyStudy.</li>
+                <li><strong>Revocation:</strong> Tutors can disconnect Google Calendar at any time from the Tutor Dashboard, and can also revoke access from Google Account permissions.</li>
+              </ul>
+              <p className="mt-3">
+                EasyStudy&apos;s use of information received from Google APIs complies with the{" "}
+                <a
+                  href="https://developers.google.com/terms/api-services-user-data-policy"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-primary-600 hover:underline"
+                >
+                  Google API Services User Data Policy
+                </a>, including Limited Use requirements.
+              </p>
+            </div>
+
+            <div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">6. Cookies</h2>
               <p>We use essential cookies and local storage to maintain your login session and preferences. We do not use third-party tracking cookies for advertising purposes.</p>
             </div>
 
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-3">6. Your Rights</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">7. Your Rights</h2>
               <p>You have the right to:</p>
               <ul className="list-disc pl-6 mt-2 space-y-1">
                 <li>Access and download your personal data</li>
@@ -85,7 +107,7 @@ const Privacy: React.FC = () => {
             </div>
 
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-3">7. Contact Us</h2>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">8. Contact Us</h2>
               <p>If you have any questions about this Privacy Policy, please contact us at <a href="mailto:support@easystudy.cloud" className="text-primary-600 hover:underline">support@easystudy.cloud</a></p>
             </div>
           </motion.div>
