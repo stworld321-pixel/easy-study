@@ -29,7 +29,7 @@ const Privacy: React.FC = () => {
           >
             <div>
               <h2 className="text-2xl font-bold text-gray-900 mb-3">1. Information We Collect</h2>
-              <p>When you use EasyStudy, we collect the following information:</p>
+              <p>When you use Zeal Catalyst, we collect the following information:</p>
               <ul className="list-disc pl-6 mt-2 space-y-1">
                 <li><strong>Account Information:</strong> Name, email address, phone number, and profile picture when you create an account.</li>
                 <li><strong>Profile Information:</strong> For tutors, we collect education details, subjects, experience, and hourly rates.</li>
@@ -70,15 +70,15 @@ const Privacy: React.FC = () => {
 
             <div>
               <h2 className="text-2xl font-bold text-gray-900 mb-3">5. Google Data Usage (Google Calendar Integration)</h2>
-              <p>If you are a tutor and choose to connect your Google account, EasyStudy requests limited Google Calendar access only to support tutoring session scheduling.</p>
+              <p>If you are a tutor and choose to connect your Google account, Zeal Catalyst requests limited Google Calendar access only to support tutoring session scheduling.</p>
               <ul className="list-disc pl-6 mt-2 space-y-1">
                 <li><strong>What we access:</strong> We access only the minimum Google Calendar data required to create, update, and delete tutoring session events, generate Google Meet links, and add booked student attendee emails when applicable.</li>
                 <li><strong>What we do not access:</strong> We do not use Google data for advertising, we do not sell Google user data, and we do not access unrelated Google services.</li>
-                <li><strong>How data is used:</strong> Google Calendar data is used only for scheduling and online session management features inside EasyStudy.</li>
+                <li><strong>How data is used:</strong> Google Calendar data is used only for scheduling and online session management features inside Zeal Catalyst.</li>
                 <li><strong>Revocation:</strong> Tutors can disconnect Google Calendar at any time from the Tutor Dashboard, and can also revoke access from Google Account permissions.</li>
               </ul>
               <p className="mt-3">
-                EasyStudy&apos;s use of information received from Google APIs complies with the{" "}
+                Zeal Catalyst&apos;s use of information received from Google APIs complies with the{" "}
                 <a
                   href="https://developers.google.com/terms/api-services-user-data-policy"
                   target="_blank"
