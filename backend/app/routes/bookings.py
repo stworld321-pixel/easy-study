@@ -21,6 +21,17 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _get_booking_slot_collection():
+    """
+    Beanie compatibility helper:
+    - v1/v2 environments may expose either get_motor_collection() or get_pymongo_collection().
+    """
+    getter = getattr(BookingSlot, "get_motor_collection", None) or getattr(BookingSlot, "get_pymongo_collection", None)
+    if getter is None:
+        raise RuntimeError("BookingSlot collection accessor is unavailable")
+    return getter()
+
+
 def create_booking_response(b: Booking) -> BookingResponse:
     """Helper to create BookingResponse from Booking model"""
     return BookingResponse(
@@ -79,7 +90,7 @@ async def _reserve_slot(
         "duration_minutes": booking_data.duration_minutes,
     }
 
-    collection = BookingSlot.get_motor_collection()
+    collection = _get_booking_slot_collection()
     capacity = 1 if booking_data.session_type == SessionType.PRIVATE else await _get_group_capacity(tutor)
 
     for _ in range(3):
@@ -160,7 +171,7 @@ async def _reserve_slot(
 
 
 async def _release_slot(tutor_id: str, scheduled_at: datetime, duration_minutes: int) -> None:
-    collection = BookingSlot.get_motor_collection()
+    collection = _get_booking_slot_collection()
     slot = await BookingSlot.find_one({
         "tutor_id": tutor_id,
         "scheduled_at": scheduled_at,
