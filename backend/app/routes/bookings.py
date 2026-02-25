@@ -265,6 +265,19 @@ async def create_booking(
         )
     except Exception:
         logger.exception("Failed to create payment record for booking %s", booking.id)
+        # Roll back booking + reserved slot when payment initialization fails.
+        try:
+            await booking.delete()
+        finally:
+            await _release_slot(
+                tutor_id=booking_data.tutor_id,
+                scheduled_at=booking_data.scheduled_at,
+                duration_minutes=booking_data.duration_minutes,
+            )
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to initialize payment for this booking. Please try again."
+        )
 
     # Send notification to tutor
     try:

@@ -229,6 +229,10 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
         throw new Error(orderResponse.error || 'Failed to create payment order');
       }
 
+      if (typeof window === 'undefined' || !window.Razorpay) {
+        throw new Error('Payment gateway is not loaded. Please refresh and try again.');
+      }
+
       // Step 3: Open Razorpay checkout
       const options: RazorpayOptions = {
         key: orderResponse.key_id!,
@@ -291,8 +295,16 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
       razorpay.open();
     } catch (error: unknown) {
       console.error('Booking error:', error);
-      const axiosError = error as { response?: { data?: { detail?: string } } };
-      const errorMessage = axiosError?.response?.data?.detail || 'Failed to book session. Please try again.';
+      const axiosError = error as {
+        response?: { data?: { detail?: string; error?: string; message?: string } };
+        message?: string;
+      };
+      const errorMessage =
+        axiosError?.response?.data?.detail ||
+        axiosError?.response?.data?.error ||
+        axiosError?.response?.data?.message ||
+        axiosError?.message ||
+        'Failed to book session. Please try again.';
       setMessage({ type: 'error', text: errorMessage });
       setBooking(false);
     }
