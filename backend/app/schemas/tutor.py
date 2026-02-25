@@ -20,6 +20,7 @@ class TutorProfileCreate(BaseModel):
     education: Optional[str] = None
     certifications: Optional[List[str]] = []
     hourly_rate: float = 0.0
+    group_hourly_rate: float = 0.0
     currency: str = "USD"
     languages: List[str] = ["English"]
     teaching_style: Optional[str] = None
@@ -37,6 +38,7 @@ class TutorProfileUpdate(BaseModel):
     education: Optional[str] = None
     certifications: Optional[List[str]] = None
     hourly_rate: Optional[float] = None
+    group_hourly_rate: Optional[float] = None
     currency: Optional[str] = None
     languages: Optional[List[str]] = None
     teaching_style: Optional[str] = None
@@ -60,6 +62,7 @@ class TutorProfileResponse(BaseModel):
     education: Optional[str] = None
     certifications: Optional[List[str]] = []
     hourly_rate: float
+    group_hourly_rate: float = 0.0
     currency: str
     languages: List[str]
     teaching_style: Optional[str] = None
