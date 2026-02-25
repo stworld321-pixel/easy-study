@@ -19,6 +19,7 @@ from app.core.config import settings
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 logger = logging.getLogger(__name__)
+MIN_ORDER_AMOUNT = 1.0
 
 
 # --- Schemas ---
@@ -85,6 +86,16 @@ async def create_razorpay_order(
     # If payment already completed, return error
     if payment.status == PaymentStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Payment already completed")
+
+    # Guard before hitting Razorpay API.
+    if payment.session_amount < MIN_ORDER_AMOUNT:
+        return CreateOrderResponse(
+            success=False,
+            error=(
+                f"Order amount ({payment.currency} {payment.session_amount:.2f}) is below minimum allowed "
+                f"({payment.currency} {MIN_ORDER_AMOUNT:.2f})."
+            )
+        )
 
     # Create Razorpay order
     order_result = razorpay_service.create_order(

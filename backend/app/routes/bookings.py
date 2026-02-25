@@ -58,6 +58,7 @@ def create_booking_response(b: Booking) -> BookingResponse:
 
 # Currency conversion rate (INR to USD)
 INR_TO_USD_RATE = 0.012
+MIN_ORDER_AMOUNT = 1.0
 
 
 async def _get_group_capacity(tutor: TutorProfile) -> int:
@@ -239,6 +240,16 @@ async def create_booking(
     else:
         session_price = session_price_inr
 
+    # Razorpay minimum order amount guard (prevents create-order failures later).
+    if session_price < MIN_ORDER_AMOUNT:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Session amount ({booking_data.currency} {session_price:.2f}) is below minimum allowed "
+                f"({booking_data.currency} {MIN_ORDER_AMOUNT:.2f}). Increase tutor rate or duration."
+            )
+        )
+
     booking = Booking(
         student_id=str(current_user.id),
         tutor_id=booking_data.tutor_id,
@@ -289,19 +300,6 @@ async def create_booking(
             status_code=500,
             detail="Unable to initialize payment for this booking. Please try again."
         )
-
-    # Send notification to tutor
-    try:
-        await notification_service.notify_new_booking(
-            tutor_user_id=tutor.user_id,
-            student_name=current_user.full_name,
-            student_id=str(current_user.id),
-            subject=booking.subject,
-            booking_id=str(booking.id),
-            scheduled_at=booking.scheduled_at
-        )
-    except Exception:
-        logger.exception("Failed to send booking notification for booking %s", booking.id)
 
     return create_booking_response(booking)
 
