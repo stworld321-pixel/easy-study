@@ -32,6 +32,8 @@ class Assignment(Document):
     subject: str
     due_date: datetime
     max_marks: int = 100
+    shared_with_all: bool = True  # If True, shared with all booked students of tutor
+    student_ids: List[str] = Field(default_factory=list)  # Specific booked students
     student_id: Optional[str] = None  # If assigned to specific student
     student_name: Optional[str] = None
     status: str = "pending"  # pending, submitted, graded

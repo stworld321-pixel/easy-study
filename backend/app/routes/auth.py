@@ -36,7 +36,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    user = await User.find_one(User.email == payload.get("sub"))
+    user = await User.find_one({"email": payload.get("sub")})
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user
@@ -44,7 +44,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate):
     try:
-        existing_user = await User.find_one(User.email == user_data.email)
+        existing_user = await User.find_one({"email": user_data.email})
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -121,7 +121,7 @@ async def register(user_data: UserCreate):
 
 @router.post("/login", response_model=Token)
 async def login(credentials: UserLogin):
-    user = await User.find_one(User.email == credentials.email)
+    user = await User.find_one({"email": credentials.email})
     if not user or not verify_password(credentials.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
@@ -220,7 +220,7 @@ async def google_auth(request: GoogleAuthRequest):
         raise HTTPException(status_code=401, detail="Invalid Google token")
 
     # Check if user exists
-    user = await User.find_one(User.email == google_user.email)
+    user = await User.find_one({"email": google_user.email})
 
     if user:
         # Existing user - log them in
@@ -234,7 +234,7 @@ async def google_auth(request: GoogleAuthRequest):
 
             # Also update tutor profile if exists
             if user.role == UserRole.TUTOR:
-                tutor_profile = await TutorProfile.find_one(TutorProfile.user_id == str(user.id))
+                tutor_profile = await TutorProfile.find_one({"user_id": str(user.id)})
                 if tutor_profile and not tutor_profile.avatar:
                     tutor_profile.avatar = google_user.picture
                     await tutor_profile.save()

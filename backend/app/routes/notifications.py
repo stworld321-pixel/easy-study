@@ -67,7 +67,7 @@ async def get_user_from_token(token: str) -> Optional[User]:
         user_email: str = payload.get("sub")
         if user_email is None:
             return None
-        user = await User.find_one(User.email == user_email)
+        user = await User.find_one({"email": user_email})
         return user
     except JWTError:
         return None

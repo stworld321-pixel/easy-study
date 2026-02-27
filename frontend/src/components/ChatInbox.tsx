@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { MessageSquare, Send } from 'lucide-react';
 import { messagesAPI } from '../services/api';
 import type { ConversationResponse, ChatMessageResponse } from '../services/api';
@@ -7,11 +7,13 @@ import { useAuth } from '../context/AuthContext';
 interface ChatInboxProps {
   mode: 'student' | 'tutor' | 'admin';
   initialTutorUserId?: string | null;
+  initialTutorProfileId?: string | null;
 }
 
-const ChatInbox: React.FC<ChatInboxProps> = ({ mode, initialTutorUserId }) => {
+const ChatInbox: React.FC<ChatInboxProps> = ({ mode, initialTutorUserId, initialTutorProfileId }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [errorText, setErrorText] = useState<string | null>(null);
   const [conversations, setConversations] = useState<ConversationResponse[]>([]);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessageResponse[]>([]);
@@ -23,7 +25,7 @@ const ChatInbox: React.FC<ChatInboxProps> = ({ mode, initialTutorUserId }) => {
     [conversations, selectedConversationId]
   );
 
-  const refreshConversations = async () => {
+  const refreshConversations = useCallback(async () => {
     if (mode === 'admin') {
       const rows = await messagesAPI.adminGetConversations(search || undefined);
       setConversations(rows);
@@ -32,21 +34,31 @@ const ChatInbox: React.FC<ChatInboxProps> = ({ mode, initialTutorUserId }) => {
     const rows = await messagesAPI.getConversations();
     setConversations(rows);
     return rows;
-  };
+  }, [mode, search]);
 
-  const refreshMessages = async (conversationId: string) => {
+  const refreshMessages = useCallback(async (conversationId: string) => {
     const rows = mode === 'admin'
       ? await messagesAPI.adminGetMessages(conversationId)
       : await messagesAPI.getMessages(conversationId);
     setMessages(rows);
-  };
+  }, [mode]);
 
   useEffect(() => {
     const run = async () => {
       setLoading(true);
+      setErrorText(null);
       try {
         if (mode === 'student' && initialTutorUserId) {
-          const started = await messagesAPI.startConversation(initialTutorUserId);
+          const started = await messagesAPI.startConversation({
+            tutorUserId: initialTutorUserId,
+            tutorProfileId: initialTutorProfileId,
+          });
+          const rows = await refreshConversations();
+          setSelectedConversationId(started.id || rows?.[0]?.id || null);
+        } else if (mode === 'student' && initialTutorProfileId) {
+          const started = await messagesAPI.startConversation({
+            tutorProfileId: initialTutorProfileId,
+          });
           const rows = await refreshConversations();
           setSelectedConversationId(started.id || rows?.[0]?.id || null);
         } else {
@@ -57,13 +69,15 @@ const ChatInbox: React.FC<ChatInboxProps> = ({ mode, initialTutorUserId }) => {
         }
       } catch (error) {
         console.error('Failed to load conversations:', error);
+        const e = error as { response?: { data?: { detail?: string } } };
+        setErrorText(e.response?.data?.detail || 'Failed to load conversations.');
       } finally {
         setLoading(false);
       }
     };
     run();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, initialTutorUserId]);
+  }, [mode, initialTutorUserId, initialTutorProfileId]);
 
   useEffect(() => {
     if (!selectedConversationId) {
@@ -72,12 +86,43 @@ const ChatInbox: React.FC<ChatInboxProps> = ({ mode, initialTutorUserId }) => {
     }
     refreshMessages(selectedConversationId).catch((error) => {
       console.error('Failed to load messages:', error);
+      const e = error as { response?: { data?: { detail?: string } } };
+      setErrorText(e.response?.data?.detail || 'Failed to load messages.');
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversationId, mode]);
 
+  // Poll conversations to reflect incoming chats without page reload.
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const rows = await refreshConversations();
+        if (!selectedConversationId && rows?.length) {
+          setSelectedConversationId(rows[0].id);
+        }
+      } catch {
+        // ignore transient polling failures
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [refreshConversations, selectedConversationId]);
+
+  // Poll current conversation messages for near real-time updates.
+  useEffect(() => {
+    if (!selectedConversationId) return;
+    const interval = setInterval(() => {
+      refreshMessages(selectedConversationId).catch(() => {
+        // ignore transient polling failures
+      });
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [selectedConversationId, refreshMessages]);
+
   const handleSend = async () => {
     if (mode === 'admin' || !selectedConversationId || !messageText.trim()) return;
+    setErrorText(null);
     try {
       await messagesAPI.sendMessage(selectedConversationId, messageText.trim());
       setMessageText('');
@@ -85,6 +130,8 @@ const ChatInbox: React.FC<ChatInboxProps> = ({ mode, initialTutorUserId }) => {
       await refreshConversations();
     } catch (error) {
       console.error('Failed to send message:', error);
+      const e = error as { response?: { data?: { detail?: string } } };
+      setErrorText(e.response?.data?.detail || 'Failed to send message.');
     }
   };
 
@@ -135,6 +182,9 @@ const ChatInbox: React.FC<ChatInboxProps> = ({ mode, initialTutorUserId }) => {
                 ? (mode === 'student' ? selectedConversation.tutor_name : mode === 'tutor' ? selectedConversation.student_name : `${selectedConversation.student_name} ↔ ${selectedConversation.tutor_name}`)
                 : 'Select a conversation'}
             </h3>
+            {errorText && (
+              <p className="mt-2 text-sm text-red-600">{errorText}</p>
+            )}
           </div>
 
           <div className="flex-1 p-4 space-y-3 overflow-y-auto max-h-[380px] bg-gray-50/30">

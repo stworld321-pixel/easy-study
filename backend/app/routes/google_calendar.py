@@ -43,6 +43,16 @@ def _oauth_client_config() -> dict:
     }
 
 
+def _calendar_callback_url(request: Request) -> str:
+    explicit = (settings.GOOGLE_REDIRECT_URI or "").strip()
+    if explicit:
+        return explicit
+    base = (settings.BACKEND_BASE_URL or "").rstrip("/")
+    if base:
+        return f"{base}/api/google-calendar/callback"
+    return str(request.url_for("google_calendar_callback"))
+
+
 def _state_token(user_id: str, frontend_redirect: str) -> str:
     payload = {
         "sub": user_id,
@@ -90,7 +100,7 @@ async def google_calendar_connect(
     client_config = _oauth_client_config()
     state = _state_token(str(current_user.id), frontend_redirect)
 
-    redirect_uri = str(request.url_for("google_calendar_callback"))
+    redirect_uri = _calendar_callback_url(request)
     flow = Flow.from_client_config(client_config, scopes=SCOPES, state=state)
     flow.redirect_uri = redirect_uri
 
@@ -129,7 +139,7 @@ async def google_calendar_callback(
         raise HTTPException(status_code=404, detail="Tutor profile not found")
 
     client_config = _oauth_client_config()
-    redirect_uri = str(request.url_for("google_calendar_callback"))
+    redirect_uri = _calendar_callback_url(request)
     flow = Flow.from_client_config(client_config, scopes=SCOPES, state=state)
     flow.redirect_uri = redirect_uri
     flow.fetch_token(code=code)
@@ -146,7 +156,7 @@ async def google_calendar_callback(
     tutor.google_calendar_connected = True
     tutor.google_calendar_email = google_email
     tutor.google_access_token = creds.token
-    tutor.google_refresh_token = creds.refresh_token
+    tutor.google_refresh_token = creds.refresh_token or tutor.google_refresh_token
     tutor.google_token_uri = creds.token_uri
     tutor.google_scopes = list(creds.scopes) if creds.scopes else SCOPES
     tutor.google_token_expiry = creds.expiry

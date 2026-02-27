@@ -3,6 +3,7 @@ from pydantic import EmailStr, Field
 from typing import Optional
 from datetime import datetime
 from enum import Enum
+from pymongo import IndexModel
 
 class UserRole(str, Enum):
     STUDENT = "student"
@@ -10,7 +11,7 @@ class UserRole(str, Enum):
     ADMIN = "admin"
 
 class User(Document):
-    email: Indexed(EmailStr, unique=True)
+    email: EmailStr
     hashed_password: str
     full_name: str
     role: UserRole = UserRole.STUDENT
@@ -24,6 +25,9 @@ class User(Document):
 
     class Settings:
         name = "users"
+        indexes = [
+            IndexModel([("email", 1)], unique=True),
+        ]
 
     class Config:
         json_schema_extra = {

@@ -8,6 +8,7 @@ import io
 import uuid
 from datetime import timedelta
 from typing import Optional, Tuple
+from pathlib import Path
 from minio import Minio
 from minio.error import S3Error
 from app.core.config import settings
@@ -20,6 +21,8 @@ class MinIOService:
         self.client: Optional[Minio] = None
         self.bucket = settings.MINIO_BUCKET
         self._initialized = False
+        self.local_media_root = Path(__file__).resolve().parent.parent.parent / "media"
+        self.local_media_root.mkdir(parents=True, exist_ok=True)
 
     def _ensure_initialized(self):
         """Lazy initialization of MinIO client"""
@@ -58,6 +61,24 @@ class MinIOService:
         }
         return content_types.get(ext, 'application/octet-stream')
 
+    def _build_url(self, object_name: str) -> str:
+        if self.client:
+            if settings.MINIO_PUBLIC_URL:
+                return f"{settings.MINIO_PUBLIC_URL}/{self.bucket}/{object_name}"
+            protocol = "https" if settings.MINIO_SECURE else "http"
+            return f"{protocol}://{settings.MINIO_ENDPOINT}/{self.bucket}/{object_name}"
+        return f"{settings.BACKEND_BASE_URL.rstrip('/')}/media/{object_name}"
+
+    def _save_local(self, object_name: str, file_data: bytes) -> bool:
+        try:
+            path = self.local_media_root / object_name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(file_data)
+            return True
+        except Exception as e:
+            print(f"Error writing local file fallback: {e}")
+            return False
+
     def _validate_image(self, filename: str, file_size: int) -> Tuple[bool, str]:
         """Validate image file"""
         # Check file extension
@@ -92,22 +113,27 @@ class MinIOService:
             Dictionary with image URL and object name, or None if failed
         """
         self._ensure_initialized()
-        if not self.client:
-            return None
-
         # Validate image
         is_valid, error_msg = self._validate_image(filename, len(file_data))
         if not is_valid:
             return {"error": error_msg}
 
+        # Generate unique filename
+        ext = filename.lower().split('.')[-1] if '.' in filename else 'jpg'
+        unique_name = f"{folder}/{uuid.uuid4().hex}.{ext}"
+        content_type = self._get_content_type(filename)
+
+        if not self.client:
+            if not self._save_local(unique_name, file_data):
+                return {"error": "Upload failed: storage unavailable"}
+            return {
+                "url": self._build_url(unique_name),
+                "object_name": unique_name,
+                "size": len(file_data),
+                "content_type": content_type
+            }
+
         try:
-            # Generate unique filename
-            ext = filename.lower().split('.')[-1] if '.' in filename else 'jpg'
-            unique_name = f"{folder}/{uuid.uuid4().hex}.{ext}"
-
-            # Get content type
-            content_type = self._get_content_type(filename)
-
             # Upload to MinIO
             self.client.put_object(
                 self.bucket,
@@ -117,18 +143,10 @@ class MinIOService:
                 content_type=content_type
             )
 
-            # Generate public URL
-            if settings.MINIO_PUBLIC_URL:
-                url = f"{settings.MINIO_PUBLIC_URL}/{self.bucket}/{unique_name}"
-            else:
-                # Use internal URL format
-                protocol = "https" if settings.MINIO_SECURE else "http"
-                url = f"{protocol}://{settings.MINIO_ENDPOINT}/{self.bucket}/{unique_name}"
-
             print(f"Uploaded image: {unique_name}")
 
             return {
-                "url": url,
+                "url": self._build_url(unique_name),
                 "object_name": unique_name,
                 "size": len(file_data),
                 "content_type": content_type
@@ -153,7 +171,14 @@ class MinIOService:
         """
         self._ensure_initialized()
         if not self.client:
-            return False
+            try:
+                path = self.local_media_root / object_name
+                if path.exists():
+                    path.unlink()
+                return True
+            except Exception as e:
+                print(f"Error deleting local fallback image: {e}")
+                return False
 
         try:
             self.client.remove_object(self.bucket, object_name)
@@ -200,6 +225,9 @@ class MinIOService:
             parts = url.split(f"/{self.bucket}/")
             if len(parts) > 1:
                 return parts[1].split('?')[0]  # Remove query params if any
+            media_parts = url.split("/media/")
+            if len(media_parts) > 1:
+                return media_parts[1].split('?')[0]
             return None
         except Exception:
             return None
@@ -216,9 +244,6 @@ class MinIOService:
             Dictionary with file URL and object name, or None if failed
         """
         self._ensure_initialized()
-        if not self.client:
-            return None
-
         try:
             # Read file content
             file_data = await file.read()
@@ -230,6 +255,16 @@ class MinIOService:
             # Get content type
             content_type = file.content_type or 'application/octet-stream'
 
+            if not self.client:
+                if not self._save_local(unique_name, file_data):
+                    return None
+                return {
+                    "url": self._build_url(unique_name),
+                    "object_name": unique_name,
+                    "size": len(file_data),
+                    "content_type": content_type
+                }
+
             # Upload to MinIO
             self.client.put_object(
                 self.bucket,
@@ -239,17 +274,10 @@ class MinIOService:
                 content_type=content_type
             )
 
-            # Generate public URL
-            if settings.MINIO_PUBLIC_URL:
-                url = f"{settings.MINIO_PUBLIC_URL}/{self.bucket}/{unique_name}"
-            else:
-                protocol = "https" if settings.MINIO_SECURE else "http"
-                url = f"{protocol}://{settings.MINIO_ENDPOINT}/{self.bucket}/{unique_name}"
-
             print(f"Uploaded file: {unique_name}")
 
             return {
-                "url": url,
+                "url": self._build_url(unique_name),
                 "object_name": unique_name,
                 "size": len(file_data),
                 "content_type": content_type

@@ -12,6 +12,12 @@ backend/.pytest_cache/
 backend/*.egg-info/
 backend/dist/
 backend/build/
+backend/.mongodb-data/
+backend/.minio-data/
+backend/minio.log
+backend/minio.exe
+backend/media/
+backend/tools/minio/
 *.pyc
 __pycache__/
 

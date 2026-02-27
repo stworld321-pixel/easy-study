@@ -957,6 +957,9 @@ export const materialsAPI = {
     subject: string;
     due_date: string;
     max_marks: number;
+    shared_with_all?: boolean;
+    student_ids?: string[];
+    student_id?: string;
   }): Promise<AssignmentResponse> => {
     const response = await api.post('/assignments', data);
     return response.data;
@@ -1020,8 +1023,11 @@ export interface ChatMessageResponse {
 
 // Messages API
 export const messagesAPI = {
-  startConversation: async (tutorUserId: string): Promise<ConversationResponse> => {
-    const response = await api.post('/messages/conversations/start', { tutor_user_id: tutorUserId });
+  startConversation: async (payload: { tutorUserId?: string | null; tutorProfileId?: string | null }): Promise<ConversationResponse> => {
+    const response = await api.post('/messages/conversations/start', {
+      tutor_user_id: payload.tutorUserId || undefined,
+      tutor_profile_id: payload.tutorProfileId || undefined,
+    });
     return response.data;
   },
 

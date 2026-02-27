@@ -4,11 +4,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Calendar, Clock, Video, DollarSign,
   Check, X, AlertCircle, ExternalLink, Copy, User,
-  FileText, Star, MessageSquare, Play, Download, BookOpen
+  FileText, Star, MessageSquare, Play, Download, BookOpen, ClipboardList
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { bookingsAPI, materialsAPI } from '../services/api';
-import type { BookingResponse, MaterialResponse, RatingResponse } from '../services/api';
+import type { AssignmentResponse, BookingResponse, MaterialResponse, RatingResponse } from '../services/api';
 import ChatInbox from '../components/ChatInbox';
 
 // Types for new features
@@ -36,6 +36,7 @@ const StudentDashboard: React.FC = () => {
   // New state for recordings, materials, and feedback
   const [recordings] = useState<RecordedSession[]>([]);
   const [materials, setMaterials] = useState<MaterialResponse[]>([]);
+  const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
   const [myRatings, setMyRatings] = useState<RatingResponse[]>([]);
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [ratingForm, setRatingForm] = useState({ tutor_id: '', tutor_name: '', subject: '', rating: 5, comment: '' });
@@ -53,6 +54,7 @@ const StudentDashboard: React.FC = () => {
   useEffect(() => {
     fetchBookings();
     fetchMaterials();
+    fetchAssignments();
     fetchMyRatings();
   }, []);
 
@@ -71,6 +73,15 @@ const StudentDashboard: React.FC = () => {
       setMyRatings(data);
     } catch (error) {
       console.error('Failed to fetch ratings:', error);
+    }
+  };
+
+  const fetchAssignments = async () => {
+    try {
+      const data = await materialsAPI.getAssignments();
+      setAssignments(data);
+    } catch (error) {
+      console.error('Failed to fetch assignments:', error);
     }
   };
 
@@ -526,6 +537,47 @@ const StudentDashboard: React.FC = () => {
                 </div>
               </div>
             )}
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-900">Assignments</h3>
+                <p className="text-sm text-gray-500 mt-1">Assignments shared by tutors you booked with</p>
+              </div>
+              {assignments.length === 0 ? (
+                <div className="p-10 text-center">
+                  <ClipboardList className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">No assignments yet</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {assignments.map(assignment => (
+                    <div key={assignment.id} className="p-6 hover:bg-gray-50 transition-colors">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <h4 className="font-semibold text-gray-900">{assignment.title}</h4>
+                          <p className="text-sm text-gray-600 mt-1">{assignment.description}</p>
+                          <div className="flex items-center gap-4 mt-2">
+                            <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">{assignment.subject}</span>
+                            <span className="text-xs text-gray-500">From: {assignment.tutor_name}</span>
+                            <span className="text-xs text-gray-500">Due: {new Date(assignment.due_date).toLocaleDateString()}</span>
+                            <span className="text-xs text-gray-500">Max: {assignment.max_marks}</span>
+                          </div>
+                        </div>
+                        <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+                          assignment.status === 'graded'
+                            ? 'bg-green-100 text-green-700'
+                            : assignment.status === 'submitted'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-yellow-100 text-yellow-700'
+                        }`}>
+                          {assignment.status}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </motion.div>
         )}
 
@@ -725,7 +777,11 @@ const StudentDashboard: React.FC = () => {
               <h2 className="text-2xl font-bold text-gray-900">Messages</h2>
               <p className="text-gray-600">Chat with tutors and ask your doubts.</p>
             </div>
-            <ChatInbox mode="student" initialTutorUserId={searchParams.get('tutor_user_id')} />
+            <ChatInbox
+              mode="student"
+              initialTutorUserId={searchParams.get('tutor_user_id')}
+              initialTutorProfileId={searchParams.get('tutor_profile_id')}
+            />
           </motion.div>
         )}
       </div>

@@ -1,12 +1,15 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
-from typing import List, Optional
+from typing import Dict, List, Optional
 from datetime import datetime
 import logging
+import asyncio
 from pydantic import BaseModel
 from app.models.material import Material, Assignment, TutorRating
 from app.models.user import User
+from app.core.config import settings
 from app.routes.auth import get_current_user
 from app.services.minio_service import minio_service
+from app.services.email_service import email_service
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -39,6 +42,8 @@ class AssignmentCreate(BaseModel):
     subject: str
     due_date: datetime
     max_marks: int = 100
+    shared_with_all: bool = True
+    student_ids: Optional[List[str]] = None
     student_id: Optional[str] = None
 
 
@@ -90,38 +95,58 @@ class BookedStudentResponse(BaseModel):
     email: str
 
 
+def _dispatch_background(coro, context: str) -> None:
+    async def _runner():
+        try:
+            await coro
+        except Exception:
+            logger.exception("Background task failed (%s)", context)
+
+    asyncio.create_task(_runner())
+
+
+def _student_tab_link(tab: str) -> str:
+    base_url = (settings.FRONTEND_URL or "").rstrip("/")
+    return f"{base_url}/student/dashboard?tab={tab}" if base_url else f"/student/dashboard?tab={tab}"
+
+
+async def _get_tutor_profile_and_booked_students(current_user: User):
+    from app.models.booking import Booking
+    from app.models.tutor import TutorProfile
+
+    tutor_profile = await TutorProfile.find_one({"user_id": str(current_user.id)})
+    if not tutor_profile:
+        return None, {}
+
+    bookings = await Booking.find({"tutor_id": str(tutor_profile.id)}).to_list()
+    student_ids = list(set(b.student_id for b in bookings if b.student_id))
+
+    students: Dict[str, User] = {}
+    for sid in student_ids:
+        try:
+            student = await User.get(sid)
+            if student:
+                students[str(student.id)] = student
+        except Exception:
+            continue
+
+    return tutor_profile, students
+
+
 @router.get("/materials/students", response_model=List[BookedStudentResponse])
 async def get_booked_students(current_user: User = Depends(get_current_user)):
     """Get all students who have booked sessions with this tutor"""
     if current_user.role != "tutor":
         raise HTTPException(status_code=403, detail="Only tutors can access this endpoint")
 
-    from app.models.booking import Booking
-    from app.models.tutor import TutorProfile
-
-    # Get tutor profile to find the tutor_id used in bookings
-    tutor_profile = await TutorProfile.find_one(TutorProfile.user_id == str(current_user.id))
-    if not tutor_profile:
+    _, students = await _get_tutor_profile_and_booked_students(current_user)
+    if not students:
         return []
 
-    # Get all bookings for this tutor
-    bookings = await Booking.find(Booking.tutor_id == str(tutor_profile.id)).to_list()
-
-    # Get unique student IDs
-    student_ids = list(set(b.student_id for b in bookings if b.student_id))
-
-    # Get student details
-    students = []
-    for student_id in student_ids:
-        student = await User.get(student_id)
-        if student:
-            students.append(BookedStudentResponse(
-                id=str(student.id),
-                name=student.full_name,
-                email=student.email
-            ))
-
-    return students
+    return [
+        BookedStudentResponse(id=sid, name=s.full_name, email=s.email)
+        for sid, s in students.items()
+    ]
 
 
 @router.post("/materials", response_model=MaterialResponse)
@@ -138,6 +163,10 @@ async def create_material(
     if current_user.role != "tutor":
         raise HTTPException(status_code=403, detail="Only tutors can create materials")
 
+    _, booked_students = await _get_tutor_profile_and_booked_students(current_user)
+    if not booked_students:
+        raise HTTPException(status_code=400, detail="No booked students found. Materials can be shared only with booked students.")
+
     file_url = None
     file_name = None
     file_type = None
@@ -153,9 +182,20 @@ async def create_material(
             file_name = file.filename
             file_type = file.content_type
 
-    # Parse shared_with_all and student_ids
+    # Parse sharing options (only booked students are eligible)
     is_shared_with_all = shared_with_all.lower() == "true"
     parsed_student_ids = [s.strip() for s in student_ids.split(",") if s.strip()] if student_ids else []
+    booked_ids = set(booked_students.keys())
+
+    if is_shared_with_all:
+        recipient_ids = list(booked_ids)
+    else:
+        invalid_ids = [sid for sid in parsed_student_ids if sid not in booked_ids]
+        if invalid_ids:
+            raise HTTPException(status_code=400, detail="Some selected students are not booked with this tutor.")
+        recipient_ids = parsed_student_ids
+        if not recipient_ids:
+            raise HTTPException(status_code=400, detail="Select at least one booked student.")
 
     material = Material(
         tutor_id=str(current_user.id),
@@ -167,9 +207,35 @@ async def create_material(
         file_name=file_name,
         file_type=file_type,
         shared_with_all=is_shared_with_all,
-        student_ids=parsed_student_ids
+        student_ids=recipient_ids
     )
     await material.insert()
+
+    # Notify recipients by email (best-effort)
+    recipient_emails = [booked_students[sid].email for sid in recipient_ids if sid in booked_students]
+    if recipient_emails:
+        _dispatch_background(
+            email_service.send_bulk_email(
+                recipients=recipient_emails,
+                subject=f"New Study Material: {title}",
+                html_content=email_service._base_template(
+                    f"""
+                    <h2 style=\"color:#1f2937; margin:0 0 16px;\">New Study Material Shared</h2>
+                    <p style=\"color:#4b5563;\">{current_user.full_name} shared a new material for <strong>{subject}</strong>.</p>
+                    <p style=\"color:#4b5563;\"><strong>Title:</strong> {title}</p>
+                    <p style=\"color:#4b5563;\">{description or ''}</p>
+                    <div style=\"text-align:center;\">
+                        <a href=\"{_student_tab_link('materials')}\"
+                           style=\"display:inline-block; background:#6366f1; color:white; text-decoration:none; padding:12px 20px; border-radius:8px;\">
+                           View Materials
+                        </a>
+                    </div>
+                    """
+                ),
+                plain_content=f"New material shared by {current_user.full_name}: {title}. Open your student dashboard materials tab.",
+            ),
+            "material_shared_email"
+        )
 
     return MaterialResponse(
         id=str(material.id),
@@ -278,6 +344,28 @@ async def create_assignment(
     if current_user.role != "tutor":
         raise HTTPException(status_code=403, detail="Only tutors can create assignments")
 
+    _, booked_students = await _get_tutor_profile_and_booked_students(current_user)
+    if not booked_students:
+        raise HTTPException(status_code=400, detail="No booked students found. Assignments can be shared only with booked students.")
+
+    booked_ids = set(booked_students.keys())
+    requested_ids = data.student_ids or []
+    if data.student_id and data.student_id not in requested_ids:
+        requested_ids.append(data.student_id)
+
+    if data.shared_with_all:
+        recipient_ids = list(booked_ids)
+    else:
+        invalid_ids = [sid for sid in requested_ids if sid not in booked_ids]
+        if invalid_ids:
+            raise HTTPException(status_code=400, detail="Some selected students are not booked with this tutor.")
+        recipient_ids = requested_ids
+        if not recipient_ids:
+            raise HTTPException(status_code=400, detail="Select at least one booked student.")
+
+    legacy_student_id = recipient_ids[0] if (len(recipient_ids) == 1) else None
+    legacy_student_name = booked_students[legacy_student_id].full_name if legacy_student_id else None
+
     assignment = Assignment(
         tutor_id=str(current_user.id),
         tutor_name=current_user.full_name,
@@ -286,9 +374,40 @@ async def create_assignment(
         subject=data.subject,
         due_date=data.due_date,
         max_marks=data.max_marks,
-        student_id=data.student_id
+        shared_with_all=data.shared_with_all,
+        student_ids=recipient_ids,
+        student_id=legacy_student_id,
+        student_name=legacy_student_name
     )
     await assignment.insert()
+
+    # Notify recipients by email (best-effort)
+    recipient_emails = [booked_students[sid].email for sid in recipient_ids if sid in booked_students]
+    if recipient_emails:
+        due_str = data.due_date.strftime("%B %d, %Y")
+        _dispatch_background(
+            email_service.send_bulk_email(
+                recipients=recipient_emails,
+                subject=f"New Assignment: {data.title}",
+                html_content=email_service._base_template(
+                    f"""
+                    <h2 style=\"color:#1f2937; margin:0 0 16px;\">New Assignment Posted</h2>
+                    <p style=\"color:#4b5563;\">{current_user.full_name} posted a new assignment for <strong>{data.subject}</strong>.</p>
+                    <p style=\"color:#4b5563;\"><strong>Title:</strong> {data.title}</p>
+                    <p style=\"color:#4b5563;\"><strong>Due Date:</strong> {due_str}</p>
+                    <p style=\"color:#4b5563;\">{data.description or ''}</p>
+                    <div style=\"text-align:center;\">
+                        <a href=\"{_student_tab_link('materials')}\"
+                           style=\"display:inline-block; background:#6366f1; color:white; text-decoration:none; padding:12px 20px; border-radius:8px;\">
+                           View Assignments
+                        </a>
+                    </div>
+                    """
+                ),
+                plain_content=f"New assignment from {current_user.full_name}: {data.title} (due {due_str}). Open your student dashboard.",
+            ),
+            "assignment_shared_email"
+        )
 
     return AssignmentResponse(
         id=str(assignment.id),
@@ -312,12 +431,38 @@ async def create_assignment(
 async def get_assignments(current_user: User = Depends(get_current_user)):
     """Get assignments - tutors see their own, students see assigned to them"""
     if current_user.role == "tutor":
-        assignments = await Assignment.find(Assignment.tutor_id == str(current_user.id)).to_list()
+        assignments = await Assignment.find({"tutor_id": str(current_user.id)}).to_list()
     else:
         student_id = str(current_user.id)
-        assignments = await Assignment.find(
-            {"$or": [{"student_id": student_id}, {"student_id": None}]}
-        ).to_list()
+        from app.models.booking import Booking
+        from app.models.tutor import TutorProfile
+        from beanie.operators import In
+        from bson import ObjectId
+
+        bookings = await Booking.find({"student_id": student_id}).to_list()
+        tutor_profile_ids = list(set(b.tutor_id for b in bookings if b.tutor_id))
+
+        if not tutor_profile_ids:
+            assignments = []
+        else:
+            profile_object_ids = []
+            for pid in tutor_profile_ids:
+                try:
+                    profile_object_ids.append(ObjectId(pid))
+                except Exception:
+                    continue
+
+            tutor_profiles = await TutorProfile.find(In(TutorProfile.id, profile_object_ids)).to_list()
+            tutor_user_ids = [tp.user_id for tp in tutor_profiles]
+
+            if not tutor_user_ids:
+                assignments = []
+            else:
+                all_assignments = await Assignment.find(In(Assignment.tutor_id, tutor_user_ids)).to_list()
+                assignments = [
+                    a for a in all_assignments
+                    if a.shared_with_all or student_id in (a.student_ids or []) or a.student_id == student_id
+                ]
 
     return [
         AssignmentResponse(

@@ -301,6 +301,19 @@ async def create_booking(
             detail="Unable to initialize payment for this booking. Please try again."
         )
 
+    # Notify tutor immediately when booking is created (faster than waiting for payment verify).
+    try:
+        await notification_service.notify_new_booking(
+            tutor_user_id=tutor.user_id,
+            student_name=current_user.full_name,
+            student_id=str(current_user.id),
+            subject=booking.subject,
+            booking_id=str(booking.id),
+            scheduled_at=booking.scheduled_at
+        )
+    except Exception:
+        logger.exception("Failed to send booking-created notification for booking %s", booking.id)
+
     return create_booking_response(booking)
 
 
@@ -409,6 +422,13 @@ async def confirm_booking(
             duration_minutes=booking.duration_minutes,
             tutor_email=booking.tutor_email,
             student_email=booking.student_email
+        )
+
+    # If tutor has connected Google Calendar, require automatic meet-link generation.
+    if tutor.google_calendar_connected and (not meet_result or not meet_result.get("meet_link")):
+        raise HTTPException(
+            status_code=502,
+            detail="Unable to generate Google Meet link from connected Google Calendar. Please reconnect Google Calendar and try again."
         )
 
     # Update booking with Meet link

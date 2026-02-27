@@ -2,6 +2,7 @@ from beanie import Document, Indexed
 from pydantic import Field
 from typing import Optional
 from datetime import datetime
+from pymongo import IndexModel
 
 
 class Conversation(Document):
@@ -15,7 +16,7 @@ class Conversation(Document):
     class Settings:
         name = "conversations"
         indexes = [
-            {"key": [("student_id", 1), ("tutor_id", 1)], "unique": True},
+            IndexModel([("student_id", 1), ("tutor_id", 1)], unique=True),
         ]
 
 

@@ -127,6 +127,8 @@ const TutorDashboard: React.FC = () => {
   const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
   const [showAssignmentForm, setShowAssignmentForm] = useState(false);
   const [assignmentForm, setAssignmentForm] = useState({ title: '', description: '', subject: '', due_date: '', max_marks: 100 });
+  const [assignmentShareWithAll, setAssignmentShareWithAll] = useState(true);
+  const [assignmentSelectedStudents, setAssignmentSelectedStudents] = useState<string[]>([]);
   const [assignmentLoading, setAssignmentLoading] = useState(false);
 
   // Feedback state
@@ -1899,7 +1901,12 @@ const TutorDashboard: React.FC = () => {
                 <p className="text-gray-600">Create and manage assignments for your students</p>
               </div>
               <button
-                onClick={() => setShowAssignmentForm(true)}
+                onClick={() => {
+                  fetchBookedStudents();
+                  setAssignmentShareWithAll(true);
+                  setAssignmentSelectedStudents([]);
+                  setShowAssignmentForm(true);
+                }}
                 className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors"
               >
                 <Plus className="w-5 h-5" />
@@ -1970,10 +1977,77 @@ const TutorDashboard: React.FC = () => {
                         />
                       </div>
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Assign To</label>
+                      <div className="space-y-3">
+                        <label className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
+                          <input
+                            type="radio"
+                            name="assignmentShareWith"
+                            checked={assignmentShareWithAll}
+                            onChange={() => {
+                              setAssignmentShareWithAll(true);
+                              setAssignmentSelectedStudents([]);
+                            }}
+                            className="w-4 h-4 text-primary-600"
+                          />
+                          <div>
+                            <span className="font-medium text-gray-900">All Booked Students</span>
+                            <p className="text-xs text-gray-500">Assign to all students who booked with you</p>
+                          </div>
+                        </label>
+                        <label className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
+                          <input
+                            type="radio"
+                            name="assignmentShareWith"
+                            checked={!assignmentShareWithAll}
+                            onChange={() => setAssignmentShareWithAll(false)}
+                            className="w-4 h-4 text-primary-600"
+                          />
+                          <div>
+                            <span className="font-medium text-gray-900">Specific Students</span>
+                            <p className="text-xs text-gray-500">Select booked students only</p>
+                          </div>
+                        </label>
+                        {!assignmentShareWithAll && (
+                          <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                            {bookedStudents.length === 0 ? (
+                              <p className="text-sm text-gray-500 text-center py-2">No students have booked with you yet</p>
+                            ) : (
+                              <div className="space-y-2 max-h-40 overflow-y-auto">
+                                {bookedStudents.map(student => (
+                                  <label key={student.id} className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded-lg cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={assignmentSelectedStudents.includes(student.id)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setAssignmentSelectedStudents([...assignmentSelectedStudents, student.id]);
+                                        } else {
+                                          setAssignmentSelectedStudents(assignmentSelectedStudents.filter(id => id !== student.id));
+                                        }
+                                      }}
+                                      className="w-4 h-4 text-primary-600 rounded"
+                                    />
+                                    <div>
+                                      <span className="text-sm font-medium text-gray-900">{student.name}</span>
+                                    </div>
+                                  </label>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                   <div className="flex gap-3 mt-6">
                     <button
-                      onClick={() => setShowAssignmentForm(false)}
+                      onClick={() => {
+                        setShowAssignmentForm(false);
+                        setAssignmentShareWithAll(true);
+                        setAssignmentSelectedStudents([]);
+                      }}
                       className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors font-medium"
                     >
                       Cancel
@@ -1982,15 +2056,25 @@ const TutorDashboard: React.FC = () => {
                       onClick={async () => {
                         setAssignmentLoading(true);
                         try {
+                          if (!assignmentShareWithAll && assignmentSelectedStudents.length === 0) {
+                            setMessage({ type: 'error', text: 'Select at least one booked student for this assignment.' });
+                            setTimeout(() => setMessage(null), 3000);
+                            setAssignmentLoading(false);
+                            return;
+                          }
                           const newAssignment = await materialsAPI.createAssignment({
                             title: assignmentForm.title,
                             description: assignmentForm.description,
                             subject: assignmentForm.subject,
                             due_date: assignmentForm.due_date,
-                            max_marks: assignmentForm.max_marks
+                            max_marks: assignmentForm.max_marks,
+                            shared_with_all: assignmentShareWithAll,
+                            student_ids: assignmentShareWithAll ? [] : assignmentSelectedStudents
                           });
                           setAssignments([newAssignment, ...assignments]);
                           setAssignmentForm({ title: '', description: '', subject: '', due_date: '', max_marks: 100 });
+                          setAssignmentShareWithAll(true);
+                          setAssignmentSelectedStudents([]);
                           setShowAssignmentForm(false);
                           setMessage({ type: 'success', text: 'Assignment created successfully!' });
                           setTimeout(() => setMessage(null), 3000);
@@ -2020,7 +2104,12 @@ const TutorDashboard: React.FC = () => {
                   <h3 className="text-lg font-semibold text-gray-900 mb-2">No Assignments Yet</h3>
                   <p className="text-gray-500 mb-4">Create your first assignment for students</p>
                   <button
-                    onClick={() => setShowAssignmentForm(true)}
+                    onClick={() => {
+                      fetchBookedStudents();
+                      setAssignmentShareWithAll(true);
+                      setAssignmentSelectedStudents([]);
+                      setShowAssignmentForm(true);
+                    }}
                     className="inline-flex items-center gap-2 px-4 py-2 bg-primary-100 text-primary-700 rounded-xl hover:bg-primary-200 transition-colors font-medium"
                   >
                     <Plus className="w-5 h-5" />

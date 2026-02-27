@@ -9,12 +9,10 @@ from datetime import datetime
 import logging
 from app.models.user import User
 from app.models.booking import Booking
-from app.models.tutor import TutorProfile
 from app.models.payment import Payment, PaymentStatus
 from app.routes.auth import get_current_user
 from app.services.razorpay_service import razorpay_service
 from app.services.payment_service import payment_service
-from app.services.notification_service import notification_service
 from app.core.config import settings
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
@@ -178,24 +176,6 @@ async def verify_razorpay_payment(
     # Update booking status to indicate payment received
     booking.payment_status = "paid"
     await booking.save()
-
-    # Send notification to tutor about new paid booking
-    try:
-        tutor_user_id = booking.tutor_id
-        tutor_profile = await TutorProfile.get(booking.tutor_id)
-        if tutor_profile:
-            tutor_user_id = tutor_profile.user_id
-
-        await notification_service.notify_new_booking(
-            tutor_user_id=tutor_user_id,
-            student_name=current_user.full_name,
-            student_id=str(current_user.id),
-            subject=booking.subject,
-            booking_id=str(booking.id),
-            scheduled_at=booking.scheduled_at
-        )
-    except Exception:
-        logger.exception("Failed to send paid-booking notification for booking %s", booking.id)
 
     return {
         "success": True,

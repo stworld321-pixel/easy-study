@@ -370,7 +370,11 @@ const TutorProfile: React.FC = () => {
               </button>
 
               <button
-                onClick={() => navigate(`/student/dashboard?tab=messages&tutor_user_id=${tutor.user_id}`)}
+                onClick={() =>
+                  navigate(
+                    `/student/dashboard?tab=messages&tutor_user_id=${encodeURIComponent(tutor.user_id || '')}&tutor_profile_id=${encodeURIComponent(tutor.id || '')}`
+                  )
+                }
                 className="w-full mt-3 py-4 border-2 border-primary-200 text-primary-600 font-semibold rounded-xl hover:bg-primary-50 transition-all duration-300 flex items-center justify-center gap-2"
               >
                 <MessageCircle className="w-5 h-5" />

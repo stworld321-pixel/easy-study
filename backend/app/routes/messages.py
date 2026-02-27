@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from pymongo.errors import DuplicateKeyError
 
 from app.models.user import User, UserRole
 from app.models.tutor import TutorProfile
@@ -18,7 +19,8 @@ def _role_value(user: User) -> str:
 
 
 class StartConversationRequest(BaseModel):
-    tutor_user_id: str
+    tutor_user_id: Optional[str] = None
+    tutor_profile_id: Optional[str] = None
 
 
 class SendMessageRequest(BaseModel):
@@ -53,8 +55,16 @@ async def _require_admin(current_user: User = Depends(get_current_user)) -> User
 
 
 async def _conversation_to_response(conv: Conversation) -> ConversationResponse:
-    student = await User.get(conv.student_id)
-    tutor = await User.get(conv.tutor_id)
+    student = None
+    tutor = None
+    try:
+        student = await User.get(conv.student_id)
+    except Exception:
+        student = None
+    try:
+        tutor = await User.get(conv.tutor_id)
+    except Exception:
+        tutor = None
     return ConversationResponse(
         id=str(conv.id),
         student_id=conv.student_id,
@@ -68,7 +78,11 @@ async def _conversation_to_response(conv: Conversation) -> ConversationResponse:
 
 
 async def _message_to_response(msg: Message) -> MessageResponse:
-    sender = await User.get(msg.sender_id)
+    sender = None
+    try:
+        sender = await User.get(msg.sender_id)
+    except Exception:
+        sender = None
     return MessageResponse(
         id=str(msg.id),
         conversation_id=msg.conversation_id,
@@ -97,18 +111,41 @@ async def start_conversation(
     if role != "student":
         raise HTTPException(status_code=403, detail="Only students can start a conversation")
 
-    tutor_user = await User.get(payload.tutor_user_id)
-    if not tutor_user or _role_value(tutor_user) != "tutor":
-        raise HTTPException(status_code=404, detail="Tutor not found")
+    tutor_user: Optional[User] = None
+    tutor_profile: Optional[TutorProfile] = None
 
-    tutor_profile = await TutorProfile.find_one(TutorProfile.user_id == str(tutor_user.id))
+    if payload.tutor_user_id:
+        tutor_user = await User.get(payload.tutor_user_id)
+        if tutor_user and _role_value(tutor_user) == "tutor":
+            tutor_profile = await TutorProfile.find_one({"user_id": str(tutor_user.id)})
+        elif not tutor_user:
+            # Some UIs may accidentally pass tutor profile id as tutor_user_id.
+            possible_profile = await TutorProfile.get(payload.tutor_user_id)
+            if possible_profile and possible_profile.user_id:
+                candidate = await User.get(possible_profile.user_id)
+                if candidate and _role_value(candidate) == "tutor":
+                    tutor_user = candidate
+                    tutor_profile = possible_profile
+
+    # Backward-compatible fallback: accept tutor profile id from older UI payloads.
+    if not tutor_user and payload.tutor_profile_id:
+        tutor_profile = await TutorProfile.get(payload.tutor_profile_id)
+        if tutor_profile and tutor_profile.user_id:
+            candidate = await User.get(tutor_profile.user_id)
+            if candidate and _role_value(candidate) == "tutor":
+                tutor_user = candidate
+
+    if not tutor_user:
+        raise HTTPException(status_code=404, detail="Tutor not found")
+    if not tutor_profile:
+        tutor_profile = await TutorProfile.find_one({"user_id": str(tutor_user.id)})
     if not tutor_profile:
         raise HTTPException(status_code=404, detail="Tutor profile not found")
 
-    conversation = await Conversation.find_one(
-        Conversation.student_id == str(current_user.id),
-        Conversation.tutor_id == str(tutor_user.id),
-    )
+    conversation = await Conversation.find_one({
+        "student_id": str(current_user.id),
+        "tutor_id": str(tutor_user.id),
+    })
     if not conversation:
         conversation = Conversation(
             student_id=str(current_user.id),
@@ -116,7 +153,19 @@ async def start_conversation(
             created_at=datetime.utcnow(),
             updated_at=datetime.utcnow(),
         )
-        await conversation.insert()
+        try:
+            await conversation.insert()
+        except DuplicateKeyError:
+            # Race-safe path: if another request created it at the same time,
+            # fetch and continue instead of returning 500.
+            conversation = await Conversation.find_one(
+                {
+                    "student_id": str(current_user.id),
+                    "tutor_id": str(tutor_user.id),
+                }
+            )
+            if not conversation:
+                raise HTTPException(status_code=500, detail="Failed to create conversation")
 
     return await _conversation_to_response(conversation)
 
@@ -128,9 +177,9 @@ async def list_conversations(
     role = _role_value(current_user)
     user_id = str(current_user.id)
     if role == "student":
-        conversations = await Conversation.find(Conversation.student_id == user_id).sort("-last_message_at").to_list()
+        conversations = await Conversation.find({"student_id": user_id}).sort("-last_message_at").to_list()
     elif role == "tutor":
-        conversations = await Conversation.find(Conversation.tutor_id == user_id).sort("-last_message_at").to_list()
+        conversations = await Conversation.find({"tutor_id": user_id}).sort("-last_message_at").to_list()
     elif role == "admin":
         conversations = await Conversation.find_all().sort("-last_message_at").limit(200).to_list()
     else:
@@ -149,7 +198,7 @@ async def get_conversation_messages(
     if not await _can_access_conversation(current_user, conversation):
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    messages = await Message.find(Message.conversation_id == conversation_id).sort("+created_at").to_list()
+    messages = await Message.find({"conversation_id": conversation_id}).sort("+created_at").to_list()
     return [await _message_to_response(m) for m in messages]
 
 
@@ -227,5 +276,5 @@ async def admin_get_conversation_messages(
     conversation = await Conversation.get(conversation_id)
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    messages = await Message.find(Message.conversation_id == conversation_id).sort("+created_at").to_list()
+    messages = await Message.find({"conversation_id": conversation_id}).sort("+created_at").to_list()
     return [await _message_to_response(m) for m in messages]

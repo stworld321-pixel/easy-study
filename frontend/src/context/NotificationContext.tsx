@@ -29,6 +29,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const shouldReconnectRef = useRef(true);
   const reconnectAttempts = useRef(0);
   const maxReconnectAttempts = 5;
 
@@ -203,9 +205,17 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const connectWebSocket = useCallback(() => {
     if (!token || !user) return;
 
-    // Close existing connection
-    if (wsRef.current) {
-      wsRef.current.close();
+    // Avoid duplicate socket instances
+    if (wsRef.current && (
+      wsRef.current.readyState === WebSocket.OPEN ||
+      wsRef.current.readyState === WebSocket.CONNECTING
+    )) {
+      return;
+    }
+    shouldReconnectRef.current = true;
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
 
     const wsUrl = `${WS_URL}/notifications/ws?token=${token}`;
@@ -225,8 +235,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       console.log('[WS] Disconnected:', event.code, event.reason);
       setIsConnected(false);
 
-      // Attempt to reconnect if not a clean close
-      if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts) {
+      // Attempt reconnect only for unexpected closes.
+      if (
+        shouldReconnectRef.current &&
+        event.code !== 1000 &&
+        reconnectAttempts.current < maxReconnectAttempts
+      ) {
         const delay = Math.min(1000 * Math.pow(2, reconnectAttempts.current), 30000);
         console.log(`[WS] Reconnecting in ${delay}ms...`);
         reconnectTimeoutRef.current = setTimeout(() => {
@@ -243,15 +257,11 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     wsRef.current = ws;
 
     // Setup heartbeat
-    const heartbeatInterval = setInterval(() => {
+    heartbeatIntervalRef.current = setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'PING' }));
       }
     }, 30000);
-
-    return () => {
-      clearInterval(heartbeatInterval);
-    };
   }, [token, user, handleWebSocketMessage]);
 
   // Connect WebSocket when user logs in
@@ -267,11 +277,18 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
 
     return () => {
+      shouldReconnectRef.current = false;
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
       if (wsRef.current) {
         wsRef.current.close(1000, 'Component unmounting');
+        wsRef.current = null;
       }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
     };
   }, [user, token, fetchNotifications, connectWebSocket]);
@@ -279,8 +296,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   // Disconnect when user logs out
   useEffect(() => {
     if (!user) {
+      shouldReconnectRef.current = false;
+      if (heartbeatIntervalRef.current) {
+        clearInterval(heartbeatIntervalRef.current);
+        heartbeatIntervalRef.current = null;
+      }
       if (wsRef.current) {
         wsRef.current.close(1000, 'User logged out');
+        wsRef.current = null;
       }
       setNotifications([]);
       setUnreadCount(0);

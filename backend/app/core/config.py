@@ -23,11 +23,13 @@ class Settings(BaseSettings):
 
     # Frontend URL for email links
     FRONTEND_URL: str = "https://easystudy.cloud"
+    BACKEND_BASE_URL: str = "http://127.0.0.1:8000"
 
     # Google Calendar/Meet API Settings
     GOOGLE_CLIENT_SECRET_FILE: Optional[str] = None  # Path to OAuth client secret JSON file
     GOOGLE_CLIENT_ID: str = ""  # For OAuth verification (set in .env)
     GOOGLE_CLIENT_SECRET: str = ""  # Google OAuth client secret (set in .env)
+    GOOGLE_REDIRECT_URI: Optional[str] = None  # Optional hardcoded OAuth callback URI
 
     # Email/SMTP Settings
     MAIL_HOST: str = Field(

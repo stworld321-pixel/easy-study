@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 import uuid
+import logging
 
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
@@ -10,6 +11,7 @@ from googleapiclient.errors import HttpError
 from app.models.tutor import TutorProfile
 
 GOOGLE_CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
+logger = logging.getLogger(__name__)
 
 
 class TutorGoogleCalendarService:
@@ -23,11 +25,13 @@ class TutorGoogleCalendarService:
             refresh_token=tutor.google_refresh_token,
             token_uri=tutor.google_token_uri or "https://oauth2.googleapis.com/token",
             scopes=tutor.google_scopes or GOOGLE_CALENDAR_SCOPES,
+            expiry=tutor.google_token_expiry,
         )
 
     @staticmethod
     async def _refresh_if_needed(tutor: TutorProfile, creds: Credentials) -> Credentials:
-        if creds.expired and creds.refresh_token:
+        # Refresh whenever token is invalid/expired and refresh token exists.
+        if (not creds.valid or creds.expired) and creds.refresh_token:
             creds.refresh(Request())
             tutor.google_access_token = creds.token
             tutor.google_refresh_token = creds.refresh_token or tutor.google_refresh_token
@@ -121,8 +125,10 @@ class TutorGoogleCalendarService:
                 "status": "created",
             }
         except HttpError:
+            logger.exception("Google Calendar API error while creating meet event for tutor %s", tutor.id)
             return fallback
         except Exception:
+            logger.exception("Unexpected error while creating meet event for tutor %s", tutor.id)
             return fallback
 
     @staticmethod
@@ -182,8 +188,10 @@ class TutorGoogleCalendarService:
                 "status": "updated",
             }
         except HttpError:
+            logger.exception("Google Calendar API error while adding attendee for tutor %s", tutor.id)
             return fallback
         except Exception:
+            logger.exception("Unexpected error while adding attendee for tutor %s", tutor.id)
             return fallback
 
 
