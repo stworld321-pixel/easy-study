@@ -48,6 +48,20 @@ def _parse_minutes(time_value: str) -> int:
         raise HTTPException(status_code=400, detail=f"Invalid time format: {time_value}. Use HH:MM")
 
 
+def _normalize_time_str(time_value: str) -> str:
+    minutes = _parse_minutes(time_value)
+    hour = minutes // 60
+    minute = minutes % 60
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _normalize_time_str_safe(time_value: str, fallback: str = "00:00") -> str:
+    try:
+        return _normalize_time_str(time_value)
+    except Exception:
+        return fallback
+
+
 def _validate_internal_no_overlap(schedule_dict: dict, label: str) -> None:
     for day, slots in schedule_dict.items():
         normalized = []
@@ -168,13 +182,13 @@ async def update_weekly_schedule(
 
     # Convert schedule to dict format
     schedule_dict = {
-        "monday": [slot.model_dump() for slot in schedule.monday],
-        "tuesday": [slot.model_dump() for slot in schedule.tuesday],
-        "wednesday": [slot.model_dump() for slot in schedule.wednesday],
-        "thursday": [slot.model_dump() for slot in schedule.thursday],
-        "friday": [slot.model_dump() for slot in schedule.friday],
-        "saturday": [slot.model_dump() for slot in schedule.saturday],
-        "sunday": [slot.model_dump() for slot in schedule.sunday],
+        "monday": [{"start_time": _normalize_time_str(slot.start_time), "end_time": _normalize_time_str(slot.end_time)} for slot in schedule.monday],
+        "tuesday": [{"start_time": _normalize_time_str(slot.start_time), "end_time": _normalize_time_str(slot.end_time)} for slot in schedule.tuesday],
+        "wednesday": [{"start_time": _normalize_time_str(slot.start_time), "end_time": _normalize_time_str(slot.end_time)} for slot in schedule.wednesday],
+        "thursday": [{"start_time": _normalize_time_str(slot.start_time), "end_time": _normalize_time_str(slot.end_time)} for slot in schedule.thursday],
+        "friday": [{"start_time": _normalize_time_str(slot.start_time), "end_time": _normalize_time_str(slot.end_time)} for slot in schedule.friday],
+        "saturday": [{"start_time": _normalize_time_str(slot.start_time), "end_time": _normalize_time_str(slot.end_time)} for slot in schedule.saturday],
+        "sunday": [{"start_time": _normalize_time_str(slot.start_time), "end_time": _normalize_time_str(slot.end_time)} for slot in schedule.sunday],
     }
 
     _validate_internal_no_overlap(
@@ -347,7 +361,14 @@ async def get_month_calendar(
         # Check if has availability slots for this day
         session_schedule = _get_schedule_by_session_type(availability, session_type)
         day_slots = session_schedule.get(day_of_week, [])
-        slots_count = len(day_slots)
+        normalized_day_slots = [
+            {
+                "start_time": _normalize_time_str_safe(slot.get("start_time", "00:00"), "00:00"),
+                "end_time": _normalize_time_str_safe(slot.get("end_time", "00:00"), "00:00"),
+            }
+            for slot in day_slots
+        ]
+        slots_count = len(normalized_day_slots)
         is_available = slots_count > 0 and not is_blocked
 
         days.append(CalendarDayStatus(
@@ -356,7 +377,7 @@ async def get_month_calendar(
             is_blocked=is_blocked,
             reason=reason,
             slots_count=slots_count,
-            time_slots=day_slots if is_available else []
+            time_slots=normalized_day_slots if is_available else []
         ))
 
     return MonthCalendarResponse(
@@ -420,7 +441,14 @@ async def get_tutor_public_calendar(
         # Check if has availability slots for this day
         session_schedule = _get_schedule_by_session_type(availability, session_type)
         day_slots = session_schedule.get(day_of_week, [])
-        slots_count = len(day_slots)
+        normalized_day_slots = [
+            {
+                "start_time": _normalize_time_str_safe(slot.get("start_time", "00:00"), "00:00"),
+                "end_time": _normalize_time_str_safe(slot.get("end_time", "00:00"), "00:00"),
+            }
+            for slot in day_slots
+        ]
+        slots_count = len(normalized_day_slots)
         is_available = slots_count > 0 and not is_blocked and availability.is_accepting_students
 
         days.append(CalendarDayStatus(
@@ -429,7 +457,7 @@ async def get_tutor_public_calendar(
             is_blocked=is_blocked,
             reason=None,  # Don't expose reasons to students
             slots_count=slots_count if is_available else 0,
-            time_slots=day_slots if is_available else []
+            time_slots=normalized_day_slots if is_available else []
         ))
 
     return MonthCalendarResponse(

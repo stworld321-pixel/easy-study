@@ -124,25 +124,16 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
     const days: CalendarDay[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const date = new Date(dateStr);
-      const dayOfWeek = date.getDay();
-      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
       const isPast = dateStr < today;
 
       days.push({
         date: dateStr,
-        is_available: !isWeekend && !isPast,
-        is_blocked: isWeekend,
-        slots_count: isWeekend || isPast ? 0 : Math.floor(Math.random() * 8) + 1
+        is_available: !isPast,
+        is_blocked: false,
+        slots_count: isPast ? 0 : Math.floor(Math.random() * 8) + 1
       });
     }
     setCalendarData(days);
-  };
-
-  const isWeekend = (dateStr: string): boolean => {
-    const date = new Date(dateStr);
-    const day = date.getDay();
-    return day === 0 || day === 6;
   };
 
   const getCalendarGrid = () => {
@@ -170,12 +161,11 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const getDayStyle = (day: CalendarDay) => {
     const today = new Date().toISOString().split('T')[0];
     const isPast = day.date < today;
-    const weekend = isWeekend(day.date);
 
     if (isPast) {
       return 'bg-gray-100 text-gray-300 cursor-not-allowed';
     }
-    if (day.is_blocked || weekend) {
+    if (day.is_blocked) {
       return 'bg-rose-50 text-rose-400 cursor-not-allowed';
     }
     if (day.is_available && day.slots_count > 0) {
@@ -186,7 +176,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
 
   const handleDateSelect = (day: CalendarDay) => {
     const today = new Date().toISOString().split('T')[0];
-    if (day.date < today || day.is_blocked || isWeekend(day.date) || !day.is_available) {
+    if (day.date < today || day.is_blocked || !day.is_available) {
       return;
     }
     setSelectedDate(day.date);
@@ -212,6 +202,14 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
 
     setBooking(true);
     try {
+      const cleanupUnpaidBooking = async (bookingId: string) => {
+        try {
+          await bookingsAPI.cancelBooking(bookingId);
+        } catch {
+          // Ignore cleanup errors; booking may already be cancelled/processed.
+        }
+      };
+
       // Step 1: Create booking with selected currency
       const bookingResponse = await bookingsAPI.create({
         tutor_id: tutor.id,
@@ -226,10 +224,12 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
       const orderResponse = await paymentsAPI.createOrder(bookingResponse.id);
 
       if (!orderResponse.success || !orderResponse.order_id) {
+        await cleanupUnpaidBooking(bookingResponse.id);
         throw new Error(orderResponse.error || 'Failed to create payment order');
       }
 
       if (typeof window === 'undefined' || !window.Razorpay) {
+        await cleanupUnpaidBooking(bookingResponse.id);
         throw new Error('Payment gateway is not loaded. Please refresh and try again.');
       }
 
@@ -258,10 +258,12 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                 navigate('/student/dashboard');
               }, 2000);
             } else {
+              await cleanupUnpaidBooking(bookingResponse.id);
               setMessage({ type: 'error', text: 'Payment verification failed. Please contact support.' });
             }
           } catch (verifyError) {
             console.error('Verification error:', verifyError);
+            await cleanupUnpaidBooking(bookingResponse.id);
             setMessage({ type: 'error', text: 'Payment verification failed. Please contact support.' });
           }
           setBooking(false);
@@ -275,9 +277,10 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
           color: '#6366f1',
         },
         modal: {
-          ondismiss: () => {
+          ondismiss: async () => {
+            await cleanupUnpaidBooking(bookingResponse.id);
             setBooking(false);
-            setMessage({ type: 'error', text: 'Payment cancelled. Your booking is pending payment.' });
+            setMessage({ type: 'error', text: 'Payment cancelled. Slot released successfully.' });
           },
           escape: true,
           backdropclose: false,
@@ -545,13 +548,13 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                           {day && (
                             <button
                               onClick={() => handleDateSelect(day)}
-                              disabled={day.date < new Date().toISOString().split('T')[0] || day.is_blocked || isWeekend(day.date) || !day.is_available}
+                              disabled={day.date < new Date().toISOString().split('T')[0] || day.is_blocked || !day.is_available}
                               className={`w-full h-full rounded-lg flex flex-col items-center justify-center transition-all text-sm ${getDayStyle(day)} ${
                                 selectedDate === day.date ? 'ring-2 ring-primary-500' : ''
                               }`}
                             >
                               <span className="font-semibold">{parseInt(day.date.split('-')[2])}</span>
-                              {day.is_available && day.slots_count > 0 && !isWeekend(day.date) && (
+                              {day.is_available && day.slots_count > 0 && (
                                 <span className="text-[9px]">{day.slots_count} slots</span>
                               )}
                             </button>
@@ -569,7 +572,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                     </div>
                     <div className="flex items-center gap-2 text-xs">
                       <div className="w-3 h-3 rounded bg-rose-50 border border-rose-200" />
-                      <span className="text-gray-600">Holiday/Unavailable</span>
+                      <span className="text-gray-600">Blocked/Unavailable</span>
                     </div>
                     <div className="flex items-center gap-2 text-xs">
                       <div className="w-3 h-3 rounded bg-gray-100 border border-gray-200" />

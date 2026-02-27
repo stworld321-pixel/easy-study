@@ -900,6 +900,8 @@ export interface AssignmentResponse {
   student_id?: string;
   student_name?: string;
   status: string;
+  submission_url?: string;
+  submission_date?: string;
   obtained_marks?: number;
   feedback?: string;
   created_at: string;
@@ -972,6 +974,16 @@ export const materialsAPI = {
 
   deleteAssignment: async (id: string): Promise<void> => {
     await api.delete(`/assignments/${id}`);
+  },
+
+  submitAssignment: async (id: string, submission_url?: string): Promise<AssignmentResponse> => {
+    const response = await api.put(`/assignments/${id}/submit`, { submission_url });
+    return response.data;
+  },
+
+  gradeAssignment: async (id: string, data: { obtained_marks?: number; feedback?: string }): Promise<AssignmentResponse> => {
+    const response = await api.put(`/assignments/${id}/grade`, data);
+    return response.data;
   },
 
   // Ratings

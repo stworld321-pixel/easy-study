@@ -561,17 +561,51 @@ const StudentDashboard: React.FC = () => {
                             <span className="text-xs text-gray-500">From: {assignment.tutor_name}</span>
                             <span className="text-xs text-gray-500">Due: {new Date(assignment.due_date).toLocaleDateString()}</span>
                             <span className="text-xs text-gray-500">Max: {assignment.max_marks}</span>
+                            {assignment.submission_date && (
+                              <span className="text-xs text-green-600">Submitted: {new Date(assignment.submission_date).toLocaleDateString()}</span>
+                            )}
                           </div>
                         </div>
-                        <span className={`px-3 py-1 text-xs font-medium rounded-full ${
-                          assignment.status === 'graded'
-                            ? 'bg-green-100 text-green-700'
-                            : assignment.status === 'submitted'
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'bg-yellow-100 text-yellow-700'
-                        }`}>
-                          {assignment.status}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          {assignment.submission_url && (
+                            <a
+                              href={assignment.submission_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200"
+                            >
+                              View Submission
+                            </a>
+                          )}
+                          {assignment.status === 'pending' && (
+                            <button
+                              onClick={async () => {
+                                const submissionUrl = window.prompt('Paste submission link (Google Drive / Docs / PDF URL). You can leave empty.');
+                                try {
+                                  const updated = await materialsAPI.submitAssignment(assignment.id, submissionUrl || undefined);
+                                  setAssignments(prev => prev.map(a => a.id === assignment.id ? updated : a));
+                                  setMessage({ type: 'success', text: 'Assignment submitted successfully.' });
+                                  setTimeout(() => setMessage(null), 2500);
+                                } catch {
+                                  setMessage({ type: 'error', text: 'Failed to submit assignment.' });
+                                  setTimeout(() => setMessage(null), 3000);
+                                }
+                              }}
+                              className="px-3 py-1 text-xs font-medium rounded-full bg-primary-600 text-white hover:bg-primary-700"
+                            >
+                              Submit
+                            </button>
+                          )}
+                          <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+                            assignment.status === 'graded'
+                              ? 'bg-green-100 text-green-700'
+                              : assignment.status === 'submitted'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-yellow-100 text-yellow-700'
+                          }`}>
+                            {assignment.status}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   ))}

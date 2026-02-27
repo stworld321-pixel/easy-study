@@ -10,6 +10,8 @@ from app.core.config import settings
 from app.routes.auth import get_current_user
 from app.services.minio_service import minio_service
 from app.services.email_service import email_service
+from app.services.notification_service import notification_service
+from app.models.notification import NotificationType
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -59,9 +61,20 @@ class AssignmentResponse(BaseModel):
     student_id: Optional[str] = None
     student_name: Optional[str] = None
     status: str
+    submission_url: Optional[str] = None
+    submission_date: Optional[datetime] = None
     obtained_marks: Optional[int] = None
     feedback: Optional[str] = None
     created_at: datetime
+
+
+class AssignmentSubmitRequest(BaseModel):
+    submission_url: Optional[str] = None
+
+
+class AssignmentGradeRequest(BaseModel):
+    obtained_marks: Optional[int] = None
+    feedback: Optional[str] = None
 
 
 class RatingCreate(BaseModel):
@@ -108,6 +121,11 @@ def _dispatch_background(coro, context: str) -> None:
 def _student_tab_link(tab: str) -> str:
     base_url = (settings.FRONTEND_URL or "").rstrip("/")
     return f"{base_url}/student/dashboard?tab={tab}" if base_url else f"/student/dashboard?tab={tab}"
+
+
+def _tutor_tab_link(tab: str) -> str:
+    base_url = (settings.FRONTEND_URL or "").rstrip("/")
+    return f"{base_url}/tutor/dashboard?tab={tab}" if base_url else f"/tutor/dashboard?tab={tab}"
 
 
 async def _get_tutor_profile_and_booked_students(current_user: User):
@@ -421,6 +439,8 @@ async def create_assignment(
         student_id=assignment.student_id,
         student_name=assignment.student_name,
         status=assignment.status,
+        submission_url=assignment.submission_url,
+        submission_date=assignment.submission_date,
         obtained_marks=assignment.obtained_marks,
         feedback=assignment.feedback,
         created_at=assignment.created_at
@@ -477,12 +497,230 @@ async def get_assignments(current_user: User = Depends(get_current_user)):
             student_id=a.student_id,
             student_name=a.student_name,
             status=a.status,
+            submission_url=a.submission_url,
+            submission_date=a.submission_date,
             obtained_marks=a.obtained_marks,
             feedback=a.feedback,
             created_at=a.created_at
         )
         for a in assignments
     ]
+
+
+@router.put("/assignments/{assignment_id}/submit", response_model=AssignmentResponse)
+async def submit_assignment(
+    assignment_id: str,
+    payload: AssignmentSubmitRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Submit an assignment (student only)."""
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Only students can submit assignments")
+
+    assignment = await Assignment.get(assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    student_id = str(current_user.id)
+
+    # Verify this student can access the assignment
+    is_recipient = assignment.shared_with_all or student_id in (assignment.student_ids or []) or assignment.student_id == student_id
+    if not is_recipient:
+        raise HTTPException(status_code=403, detail="You are not assigned to this assignment")
+
+    # For shared_with_all assignments, ensure student actually booked with tutor
+    from app.models.booking import Booking
+    from app.models.tutor import TutorProfile
+
+    tutor_profile = await TutorProfile.find_one({"user_id": assignment.tutor_id})
+    if not tutor_profile:
+        raise HTTPException(status_code=404, detail="Tutor profile not found")
+
+    booking_exists = await Booking.find_one({
+        "student_id": student_id,
+        "tutor_id": str(tutor_profile.id),
+        "status": {"$ne": "cancelled"},
+    })
+    if not booking_exists:
+        raise HTTPException(status_code=403, detail="Only booked students can submit this assignment")
+
+    assignment.status = "submitted"
+    assignment.submission_url = (payload.submission_url or "").strip() or None
+    assignment.submission_date = datetime.utcnow()
+    assignment.updated_at = datetime.utcnow()
+    await assignment.save()
+
+    # Notify tutor by email + notification (best effort)
+    try:
+        tutor_user = await User.get(assignment.tutor_id)
+        if tutor_user and tutor_user.email:
+            _dispatch_background(
+                email_service.send_email(
+                    to_email=tutor_user.email,
+                    subject=f"Assignment Submitted: {assignment.title}",
+                    html_content=email_service._base_template(
+                        f"""
+                        <h2 style=\"color:#1f2937; margin:0 0 16px;\">Assignment Submission Received</h2>
+                        <p style=\"color:#4b5563;\"><strong>{current_user.full_name}</strong> submitted assignment <strong>{assignment.title}</strong>.</p>
+                        <p style=\"color:#4b5563;\"><strong>Subject:</strong> {assignment.subject}</p>
+                        <div style=\"text-align:center;\">
+                          <a href=\"{_tutor_tab_link('assignments')}\"
+                             style=\"display:inline-block; background:#6366f1; color:white; text-decoration:none; padding:12px 20px; border-radius:8px;\">
+                             Review Assignment
+                          </a>
+                        </div>
+                        """
+                    ),
+                    plain_content=f"{current_user.full_name} submitted assignment: {assignment.title}",
+                ),
+                "assignment_submitted_tutor_email"
+            )
+    except Exception:
+        logger.exception("Failed to send tutor assignment submission email for assignment %s", assignment_id)
+
+    try:
+        await notification_service.create_notification(
+            user_id=assignment.tutor_id,
+            notification_type=NotificationType.SYSTEM,
+            title="Assignment Submitted",
+            message=f"{current_user.full_name} submitted: {assignment.title}",
+            link="/tutor/dashboard?tab=assignments",
+            related_id=str(assignment.id),
+            actor_id=str(current_user.id),
+            actor_name=current_user.full_name,
+        )
+    except Exception:
+        logger.exception("Failed to create tutor assignment submission notification for assignment %s", assignment_id)
+
+    return AssignmentResponse(
+        id=str(assignment.id),
+        tutor_id=assignment.tutor_id,
+        tutor_name=assignment.tutor_name,
+        title=assignment.title,
+        description=assignment.description,
+        subject=assignment.subject,
+        due_date=assignment.due_date,
+        max_marks=assignment.max_marks,
+        student_id=assignment.student_id,
+        student_name=assignment.student_name,
+        status=assignment.status,
+        submission_url=assignment.submission_url,
+        submission_date=assignment.submission_date,
+        obtained_marks=assignment.obtained_marks,
+        feedback=assignment.feedback,
+        created_at=assignment.created_at,
+    )
+
+
+@router.put("/assignments/{assignment_id}/grade", response_model=AssignmentResponse)
+async def grade_assignment(
+    assignment_id: str,
+    payload: AssignmentGradeRequest,
+    current_user: User = Depends(get_current_user)
+):
+    """Grade/update assignment result (tutor only)."""
+    if current_user.role != "tutor":
+        raise HTTPException(status_code=403, detail="Only tutors can update assignment results")
+
+    assignment = await Assignment.get(assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    if assignment.tutor_id != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to update this assignment")
+
+    if payload.obtained_marks is not None:
+        if payload.obtained_marks < 0:
+            raise HTTPException(status_code=400, detail="Obtained marks cannot be negative")
+        if payload.obtained_marks > assignment.max_marks:
+            raise HTTPException(status_code=400, detail="Obtained marks cannot exceed max marks")
+        assignment.obtained_marks = payload.obtained_marks
+
+    if payload.feedback is not None:
+        assignment.feedback = payload.feedback.strip() or None
+
+    assignment.status = "graded"
+    assignment.updated_at = datetime.utcnow()
+    await assignment.save()
+
+    # Notify targeted students by email + in-app (best effort)
+    recipient_ids = assignment.student_ids or ([assignment.student_id] if assignment.student_id else [])
+    if assignment.shared_with_all:
+        from app.models.booking import Booking
+        from app.models.tutor import TutorProfile
+        tutor_profile = await TutorProfile.find_one({"user_id": assignment.tutor_id})
+        if tutor_profile:
+            bookings = await Booking.find({"tutor_id": str(tutor_profile.id), "status": {"$ne": "cancelled"}}).to_list()
+            recipient_ids = list({b.student_id for b in bookings if b.student_id})
+
+    recipients: List[User] = []
+    for sid in recipient_ids:
+        try:
+            student = await User.get(sid)
+            if student:
+                recipients.append(student)
+        except Exception:
+            continue
+
+    if recipients:
+        email_targets = [u.email for u in recipients if u.email]
+        if email_targets:
+            _dispatch_background(
+                email_service.send_bulk_email(
+                    recipients=email_targets,
+                    subject=f"Assignment Graded: {assignment.title}",
+                    html_content=email_service._base_template(
+                        f"""
+                        <h2 style=\"color:#1f2937; margin:0 0 16px;\">Assignment Result Updated</h2>
+                        <p style=\"color:#4b5563;\">Your tutor <strong>{current_user.full_name}</strong> updated result for <strong>{assignment.title}</strong>.</p>
+                        <p style=\"color:#4b5563;\"><strong>Marks:</strong> {assignment.obtained_marks if assignment.obtained_marks is not None else 'Not provided'}/{assignment.max_marks}</p>
+                        <p style=\"color:#4b5563;\"><strong>Feedback:</strong> {assignment.feedback or 'No feedback provided'}</p>
+                        <div style=\"text-align:center;\">
+                          <a href=\"{_student_tab_link('materials')}\"
+                             style=\"display:inline-block; background:#6366f1; color:white; text-decoration:none; padding:12px 20px; border-radius:8px;\">
+                             View Assignment
+                          </a>
+                        </div>
+                        """
+                    ),
+                    plain_content=f"Assignment graded: {assignment.title}. Marks: {assignment.obtained_marks}/{assignment.max_marks}.",
+                ),
+                "assignment_graded_student_email"
+            )
+
+        for student in recipients:
+            try:
+                await notification_service.create_notification(
+                    user_id=str(student.id),
+                    notification_type=NotificationType.SYSTEM,
+                    title="Assignment Graded",
+                    message=f"{assignment.title} has been graded by {current_user.full_name}",
+                    link="/student/dashboard?tab=materials",
+                    related_id=str(assignment.id),
+                    actor_id=str(current_user.id),
+                    actor_name=current_user.full_name,
+                )
+            except Exception:
+                continue
+
+    return AssignmentResponse(
+        id=str(assignment.id),
+        tutor_id=assignment.tutor_id,
+        tutor_name=assignment.tutor_name,
+        title=assignment.title,
+        description=assignment.description,
+        subject=assignment.subject,
+        due_date=assignment.due_date,
+        max_marks=assignment.max_marks,
+        student_id=assignment.student_id,
+        student_name=assignment.student_name,
+        status=assignment.status,
+        submission_url=assignment.submission_url,
+        submission_date=assignment.submission_date,
+        obtained_marks=assignment.obtained_marks,
+        feedback=assignment.feedback,
+        created_at=assignment.created_at,
+    )
 
 
 @router.delete("/assignments/{assignment_id}")

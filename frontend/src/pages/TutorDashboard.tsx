@@ -35,12 +35,12 @@ const LANGUAGES_LIST = ['English', 'Spanish', 'French', 'German', 'Mandarin', 'H
 const TutorDashboard: React.FC = () => {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<'profile' | 'availability' | 'calendar' | 'earnings' | 'materials' | 'assignments' | 'feedback' | 'messages'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'availability' | 'calendar' | 'bookings' | 'earnings' | 'materials' | 'assignments' | 'feedback' | 'messages'>('profile');
 
   // Handle tab query parameter from notifications
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && ['profile', 'availability', 'calendar', 'earnings', 'materials', 'assignments', 'feedback', 'messages'].includes(tabParam)) {
+    if (tabParam && ['profile', 'availability', 'calendar', 'bookings', 'earnings', 'materials', 'assignments', 'feedback', 'messages'].includes(tabParam)) {
       setActiveTab(tabParam as typeof activeTab);
     }
 
@@ -83,6 +83,7 @@ const TutorDashboard: React.FC = () => {
     monday: [], tuesday: [], wednesday: [], thursday: [],
     friday: [], saturday: [], sunday: []
   });
+  const [sessionDuration, setSessionDuration] = useState<number>(60);
   const [scheduleMode, setScheduleMode] = useState<'private' | 'group'>('private');
   const [groupSessionCapacity, setGroupSessionCapacity] = useState<number>(10);
 
@@ -98,6 +99,7 @@ const TutorDashboard: React.FC = () => {
 
   // Bookings state
   const [bookings, setBookings] = useState<BookingResponse[]>([]);
+  const [bookingView, setBookingView] = useState<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled'>('upcoming');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [editingMeetLink, setEditingMeetLink] = useState<string | null>(null);
   const [meetLinkInput, setMeetLinkInput] = useState('');
@@ -305,6 +307,7 @@ const TutorDashboard: React.FC = () => {
           monday: [], tuesday: [], wednesday: [], thursday: [],
           friday: [], saturday: [], sunday: []
         });
+        setSessionDuration(availabilityData.session_duration || 60);
         setGroupSessionCapacity(availabilityData.group_session_capacity || 10);
       }
 
@@ -357,6 +360,7 @@ const TutorDashboard: React.FC = () => {
       const scheduleToSave = scheduleMode === 'private' ? privateWeeklySchedule : groupWeeklySchedule;
       await availabilityAPI.updateSchedule(scheduleToSave, scheduleMode);
       await availabilityAPI.updateSettings({
+        session_duration: Math.max(15, Number(sessionDuration) || 60),
         group_session_capacity: Math.max(1, Number(groupSessionCapacity) || 1),
       } as Partial<AvailabilitySettings>);
       setMessage({ type: 'success', text: 'Availability saved successfully!' });
@@ -540,13 +544,6 @@ const TutorDashboard: React.FC = () => {
   const prevMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
   const nextMonth = () => setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
 
-  // Check if a date is a weekend (Saturday or Sunday)
-  const isWeekend = (dateStr: string): boolean => {
-    const date = new Date(dateStr);
-    const day = date.getDay();
-    return day === 0 || day === 6; // 0 = Sunday, 6 = Saturday
-  };
-
   // Get calendar grid
   const getCalendarGrid = () => {
     const year = currentMonth.getFullYear();
@@ -572,9 +569,8 @@ const TutorDashboard: React.FC = () => {
     return grid;
   };
 
-  // Get day styling based on availability, bookings and weekend status
+  // Get day styling based on availability and booking status
   const getDayStyle = (day: CalendarDay) => {
-    const weekend = isWeekend(day.date);
     const today = new Date().toISOString().split('T')[0];
     const isPast = day.date < today;
     const dayHasBookings = hasBookings(day.date);
@@ -587,10 +583,6 @@ const TutorDashboard: React.FC = () => {
       // Has bookings - blue
       return 'bg-blue-100 text-blue-700 border-2 border-blue-300 hover:bg-blue-200 cursor-pointer';
     }
-    if (weekend) {
-      // Weekend (default holiday) - lighter rose/red
-      return 'bg-rose-50 text-rose-600 border border-rose-200';
-    }
     if (day.is_available && day.slots_count > 0) {
       // Available with slots - green
       return `bg-emerald-100 text-emerald-700 border border-emerald-200 ${!isPast ? 'hover:bg-emerald-200 hover:border-emerald-300 cursor-pointer' : ''}`;
@@ -601,6 +593,40 @@ const TutorDashboard: React.FC = () => {
     // No availability set
     return 'bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200 cursor-pointer';
   };
+
+  const now = new Date();
+  const sortedBookings = [...bookings].sort(
+    (a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
+  );
+  const bookingViews: Record<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled', BookingResponse[]> = {
+    upcoming: sortedBookings.filter(
+      b => new Date(b.scheduled_at) >= now && (b.status === 'pending' || b.status === 'confirmed')
+    ),
+    private: sortedBookings.filter(b => b.session_type === 'private' && b.status !== 'cancelled'),
+    group: sortedBookings.filter(b => b.session_type === 'group' && b.status !== 'cancelled'),
+    finished: sortedBookings.filter(b => b.status === 'completed' || (new Date(b.scheduled_at) < now && b.status === 'confirmed')),
+    cancelled: sortedBookings.filter(b => b.status === 'cancelled'),
+  };
+  const currentBookings = bookingViews[bookingView];
+  const bookingViewLabels: Record<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled', string> = {
+    upcoming: 'Upcoming Sessions',
+    private: 'Private Sessions',
+    group: 'Group Sessions',
+    finished: 'Finished Sessions',
+    cancelled: 'Cancelled Sessions',
+  };
+  const pendingBookingsCount = bookings.filter(b => b.status === 'pending').length;
+  const dashboardTabs: Array<{ id: typeof activeTab; label: string; icon: React.ElementType }> = [
+    { id: 'profile', label: 'Profile', icon: User },
+    { id: 'availability', label: 'Schedule', icon: Clock },
+    { id: 'calendar', label: 'Calendar', icon: Calendar },
+    { id: 'bookings', label: 'Session Bookings', icon: Video },
+    { id: 'materials', label: 'Materials', icon: FileText },
+    { id: 'assignments', label: 'Assignments', icon: ClipboardList },
+    { id: 'feedback', label: 'Feedback', icon: MessageSquare },
+    { id: 'messages', label: 'Messages', icon: MessageSquare },
+    { id: 'earnings', label: 'Earnings', icon: Wallet },
+  ];
 
   if (loading) {
     return (
@@ -643,7 +669,7 @@ const TutorDashboard: React.FC = () => {
         </AnimatePresence>
 
         {/* Pending Bookings Alert */}
-        {bookings.filter(b => b.status === 'pending').length > 0 && activeTab !== 'calendar' && (
+        {pendingBookingsCount > 0 && activeTab !== 'bookings' && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -655,13 +681,13 @@ const TutorDashboard: React.FC = () => {
               </div>
               <div>
                 <p className="font-medium text-yellow-800">
-                  You have {bookings.filter(b => b.status === 'pending').length} pending booking request{bookings.filter(b => b.status === 'pending').length > 1 ? 's' : ''}
+                  You have {pendingBookingsCount} pending booking request{pendingBookingsCount > 1 ? 's' : ''}
                 </p>
                 <p className="text-sm text-yellow-600">Review and confirm to avoid missing sessions</p>
               </div>
             </div>
             <button
-              onClick={() => setActiveTab('calendar')}
+              onClick={() => setActiveTab('bookings')}
               className="px-4 py-2 bg-yellow-500 text-white rounded-xl hover:bg-yellow-600 transition-colors font-medium"
             >
               View Requests
@@ -669,37 +695,60 @@ const TutorDashboard: React.FC = () => {
           </motion.div>
         )}
 
-        {/* Tabs */}
-        <div className="flex gap-2 mb-8 bg-white p-2 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
-          {[
-            { id: 'profile', label: 'Profile', icon: User },
-            { id: 'availability', label: 'Schedule', icon: Clock },
-            { id: 'calendar', label: 'Calendar', icon: Calendar },
-            { id: 'materials', label: 'Materials', icon: FileText },
-            { id: 'assignments', label: 'Assignments', icon: ClipboardList },
-            { id: 'feedback', label: 'Feedback', icon: MessageSquare },
-            { id: 'messages', label: 'Messages', icon: MessageSquare },
-            { id: 'earnings', label: 'Earnings', icon: Wallet },
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as typeof activeTab)}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium transition-all duration-300 relative ${
-                activeTab === tab.id
-                  ? 'bg-gradient-to-r from-primary-600 to-primary-500 text-white shadow-lg shadow-primary-500/25'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-            >
-              <tab.icon className="w-5 h-5" />
-              {tab.label}
-              {tab.id === 'calendar' && bookings.filter(b => b.status === 'pending').length > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
-                  {bookings.filter(b => b.status === 'pending').length}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
+        <div className="lg:grid lg:grid-cols-[260px,1fr] lg:gap-8">
+          {/* Desktop Sidebar */}
+          <aside className="hidden lg:block">
+            <div className="sticky top-24 bg-white p-3 rounded-2xl shadow-sm border border-gray-100">
+              <nav className="space-y-1">
+                {dashboardTabs.map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`w-full flex items-center justify-between gap-2 py-3 px-3 rounded-xl font-medium transition-all duration-300 relative ${
+                      activeTab === tab.id
+                        ? 'bg-gradient-to-r from-primary-600 to-primary-500 text-white shadow-lg shadow-primary-500/20'
+                        : 'text-gray-600 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <tab.icon className="w-5 h-5" />
+                      <span className="text-sm">{tab.label}</span>
+                    </span>
+                    {tab.id === 'bookings' && pendingBookingsCount > 0 && (
+                      <span className="w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                        {pendingBookingsCount}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </nav>
+            </div>
+          </aside>
+
+          {/* Main Content Column */}
+          <div>
+            {/* Mobile Tabs */}
+            <div className="flex gap-2 mb-8 bg-white p-2 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto lg:hidden">
+              {dashboardTabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-medium transition-all duration-300 relative whitespace-nowrap ${
+                    activeTab === tab.id
+                      ? 'bg-gradient-to-r from-primary-600 to-primary-500 text-white shadow-lg shadow-primary-500/25'
+                      : 'text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <tab.icon className="w-5 h-5" />
+                  {tab.label}
+                  {tab.id === 'bookings' && pendingBookingsCount > 0 && (
+                    <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center">
+                      {pendingBookingsCount}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
 
         {/* Profile Tab */}
         {activeTab === 'profile' && (
@@ -1079,6 +1128,25 @@ const TutorDashboard: React.FC = () => {
               Define separate weekly schedules for private and group sessions.
             </p>
 
+            <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Session Duration
+              </label>
+              <select
+                value={sessionDuration}
+                onChange={(e) => setSessionDuration(Math.max(15, Number(e.target.value) || 60))}
+                className="w-full sm:w-64 px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value={30}>30 minutes</option>
+                <option value={45}>45 minutes</option>
+                <option value={60}>60 minutes</option>
+                <option value={90}>90 minutes</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-2">
+                Student booking time options are generated using this duration.
+              </p>
+            </div>
+
             <div className="mb-6 grid sm:grid-cols-2 gap-3">
               <button
                 onClick={() => setScheduleMode('private')}
@@ -1259,10 +1327,7 @@ const TutorDashboard: React.FC = () => {
                         {hasBookings(day.date) && !day.is_blocked && (
                           <span className="text-[10px] font-medium mt-0.5">{getBookingsForDate(day.date).length} booked</span>
                         )}
-                        {isWeekend(day.date) && !day.is_blocked && !hasBookings(day.date) && (
-                          <span className="text-[10px] font-medium mt-0.5">Holiday</span>
-                        )}
-                        {day.is_available && day.slots_count > 0 && !isWeekend(day.date) && !day.is_blocked && !hasBookings(day.date) && (
+                        {day.is_available && day.slots_count > 0 && !day.is_blocked && !hasBookings(day.date) && (
                           <span className="text-[10px] font-medium mt-0.5">{day.slots_count} slots</span>
                         )}
                       </button>
@@ -1280,10 +1345,6 @@ const TutorDashboard: React.FC = () => {
                 <div className="flex items-center gap-2 px-3 py-2 bg-emerald-50 rounded-lg">
                   <div className="w-4 h-4 rounded-md bg-emerald-100 border border-emerald-200" />
                   <span className="text-sm font-medium text-emerald-700">Available</span>
-                </div>
-                <div className="flex items-center gap-2 px-3 py-2 bg-rose-50 rounded-lg">
-                  <div className="w-4 h-4 rounded-md bg-rose-50 border border-rose-200" />
-                  <span className="text-sm font-medium text-rose-600">Weekend (Holiday)</span>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-2 bg-red-50 rounded-lg">
                   <div className="w-4 h-4 rounded-md bg-red-200 border border-red-300" />
@@ -1417,186 +1478,215 @@ const TutorDashboard: React.FC = () => {
                 )}
               </div>
 
-              {/* Upcoming Bookings */}
-              <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  <Video className="w-5 h-5 text-primary-600" />
-                  Upcoming Bookings
-                </h3>
+            </div>
+          </motion.div>
+        )}
 
-                {bookings.filter(b => b.status !== 'cancelled' && new Date(b.scheduled_at) >= new Date()).length === 0 ? (
-                  <p className="text-gray-500 text-sm">No upcoming bookings</p>
-                ) : (
-                  <div className="space-y-4 max-h-[600px] overflow-y-auto">
-                    {bookings
-                      .filter(b => b.status !== 'cancelled' && new Date(b.scheduled_at) >= new Date())
-                      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
-                      .slice(0, 10)
-                      .map(booking => (
-                        <div
-                          key={booking.id}
-                          className={`p-4 rounded-xl border ${
-                            booking.status === 'confirmed' ? 'bg-green-50 border-green-200' :
-                            booking.status === 'pending' ? 'bg-yellow-50 border-yellow-200' :
-                            'bg-blue-50 border-blue-100'
-                          }`}
-                        >
-                          <div className="flex items-start justify-between">
-                            <div>
-                              <div className="font-semibold text-gray-900">
-                                {booking.student_name || 'Student'}
-                              </div>
-                              <div className="text-sm text-gray-600 mt-1">
-                                {booking.subject}
-                              </div>
-                            </div>
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                              booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                              booking.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-gray-100 text-gray-700'
-                            }`}>
-                              {booking.status}
-                            </span>
+        {/* Session Bookings Tab */}
+        {activeTab === 'bookings' && (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="space-y-6"
+          >
+            <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Video className="w-5 h-5 text-primary-600" />
+                Session Bookings
+              </h3>
+
+              <div className="mb-4 flex flex-wrap gap-2">
+                {[
+                  { key: 'upcoming', label: 'Upcoming' },
+                  { key: 'private', label: 'Private' },
+                  { key: 'group', label: 'Group' },
+                  { key: 'finished', label: 'Finished' },
+                  { key: 'cancelled', label: 'Cancelled' },
+                ].map(view => (
+                  <button
+                    key={view.key}
+                    onClick={() => setBookingView(view.key as typeof bookingView)}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      bookingView === view.key
+                        ? 'bg-primary-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {view.label}
+                  </button>
+                ))}
+              </div>
+
+              <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                {bookingViewLabels[bookingView]} ({currentBookings.length})
+              </h4>
+
+              {currentBookings.length === 0 ? (
+                <p className="text-gray-500 text-sm">No {bookingViewLabels[bookingView].toLowerCase()}</p>
+              ) : (
+                <div className="space-y-4 max-h-[700px] overflow-y-auto">
+                  {currentBookings.map(booking => (
+                    <div
+                      key={booking.id}
+                      className={`p-4 rounded-xl border ${
+                        booking.status === 'confirmed' ? 'bg-green-50 border-green-200' :
+                        booking.status === 'pending' ? 'bg-yellow-50 border-yellow-200' :
+                        'bg-blue-50 border-blue-100'
+                      }`}
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="font-semibold text-gray-900">
+                            {booking.student_name || 'Student'}
                           </div>
-
-                          <div className="mt-3 flex items-center gap-4 text-sm text-gray-600">
-                            <div className="flex items-center gap-1">
-                              <Calendar className="w-4 h-4" />
-                              {new Date(booking.scheduled_at).toLocaleDateString('en-US', {
-                                weekday: 'short',
-                                month: 'short',
-                                day: 'numeric'
-                              })}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <Clock className="w-4 h-4" />
-                              {new Date(booking.scheduled_at).toLocaleTimeString('en-US', {
-                                hour: '2-digit',
-                                minute: '2-digit'
-                              })}
-                            </div>
-                          </div>
-
-                          <div className="mt-2 text-sm font-medium text-gray-700">
-                            {booking.currency === 'INR' ? '₹' : '$'}{booking.price.toFixed(2)} • {booking.duration_minutes} min • {booking.session_type}
-                          </div>
-
-                          {/* Meet Link Section */}
-                          {booking.status === 'confirmed' && (
-                            <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200">
-                              {booking.meeting_link ? (
-                                <div className="space-y-2">
-                                  <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                                    <Video className="w-4 h-4 text-green-600" />
-                                    Meet Link
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="text"
-                                      value={booking.meeting_link}
-                                      readOnly
-                                      className="flex-1 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg"
-                                    />
-                                    <button
-                                      onClick={() => copyToClipboard(booking.meeting_link!)}
-                                      className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
-                                      title="Copy link"
-                                    >
-                                      <Copy className="w-4 h-4" />
-                                    </button>
-                                    <a
-                                      href={booking.meeting_link}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
-                                      title="Open Meet"
-                                    >
-                                      <ExternalLink className="w-4 h-4" />
-                                    </a>
-                                  </div>
-                                </div>
-                              ) : editingMeetLink === booking.id ? (
-                                <div className="space-y-2">
-                                  <div className="text-sm font-medium text-gray-700">Add Meet Link</div>
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="url"
-                                      value={meetLinkInput}
-                                      onChange={(e) => setMeetLinkInput(e.target.value)}
-                                      placeholder="https://meet.google.com/..."
-                                      className="flex-1 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                    />
-                                    <button
-                                      onClick={() => handleUpdateMeetLink(booking.id)}
-                                      disabled={actionLoading === booking.id}
-                                      className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
-                                    >
-                                      {actionLoading === booking.id ? '...' : 'Save'}
-                                    </button>
-                                    <button
-                                      onClick={() => { setEditingMeetLink(null); setMeetLinkInput(''); }}
-                                      className="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <button
-                                  onClick={() => setEditingMeetLink(booking.id)}
-                                  className="flex items-center gap-2 text-sm text-primary-600 hover:text-primary-700"
-                                >
-                                  <Link className="w-4 h-4" />
-                                  Add Meet link manually
-                                </button>
-                              )}
-                            </div>
-                          )}
-
-                          {/* Action Buttons */}
-                          <div className="mt-3 flex gap-2">
-                            {booking.status === 'pending' && (
-                              <>
-                                <button
-                                  onClick={() => handleConfirmBooking(booking.id)}
-                                  disabled={actionLoading === booking.id}
-                                  className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
-                                >
-                                  {actionLoading === booking.id ? (
-                                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                  ) : (
-                                    <>
-                                      <Check className="w-4 h-4" />
-                                      Confirm
-                                    </>
-                                  )}
-                                </button>
-                                <button
-                                  onClick={() => handleCancelBooking(booking.id)}
-                                  disabled={actionLoading === booking.id}
-                                  className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50"
-                                >
-                                  <X className="w-4 h-4" />
-                                  Decline
-                                </button>
-                              </>
-                            )}
-                            {booking.status === 'confirmed' && (
-                              <button
-                                onClick={() => handleCancelBooking(booking.id)}
-                                disabled={actionLoading === booking.id}
-                                className="flex items-center justify-center gap-1 px-3 py-2 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50"
-                              >
-                                <X className="w-4 h-4" />
-                                Cancel Booking
-                              </button>
-                            )}
+                          <div className="text-sm text-gray-600 mt-1">
+                            {booking.subject}
                           </div>
                         </div>
-                      ))}
-                  </div>
-                )}
-              </div>
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                          booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                          booking.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {booking.status}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex flex-col gap-2 text-sm text-gray-600 sm:flex-row sm:items-center sm:gap-4">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="w-4 h-4" />
+                          {new Date(booking.scheduled_at).toLocaleDateString('en-US', {
+                            weekday: 'short',
+                            month: 'short',
+                            day: 'numeric'
+                          })}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-4 h-4" />
+                          {new Date(booking.scheduled_at).toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="mt-2 text-sm font-medium text-gray-700">
+                        {booking.currency === 'INR' ? 'Rs ' : '$'}{booking.price.toFixed(2)} | {booking.duration_minutes} min | {booking.session_type}
+                      </div>
+
+                      {booking.status === 'confirmed' && (
+                        <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200">
+                          {booking.meeting_link ? (
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                                <Video className="w-4 h-4 text-green-600" />
+                                Meet Link
+                              </div>
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <input
+                                  type="text"
+                                  value={booking.meeting_link}
+                                  readOnly
+                                  className="flex-1 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg"
+                                />
+                                <button
+                                  onClick={() => copyToClipboard(booking.meeting_link!)}
+                                  className="p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                                  title="Copy link"
+                                >
+                                  <Copy className="w-4 h-4" />
+                                </button>
+                                <a
+                                  href={booking.meeting_link}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
+                                  title="Open Meet"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </a>
+                              </div>
+                            </div>
+                          ) : editingMeetLink === booking.id ? (
+                            <div className="space-y-2">
+                              <div className="text-sm font-medium text-gray-700">Add Meet Link</div>
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                <input
+                                  type="url"
+                                  value={meetLinkInput}
+                                  onChange={(e) => setMeetLinkInput(e.target.value)}
+                                  placeholder="https://meet.google.com/..."
+                                  className="flex-1 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                />
+                                <button
+                                  onClick={() => handleUpdateMeetLink(booking.id)}
+                                  disabled={actionLoading === booking.id}
+                                  className="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 disabled:opacity-50"
+                                >
+                                  {actionLoading === booking.id ? '...' : 'Save'}
+                                </button>
+                                <button
+                                  onClick={() => { setEditingMeetLink(null); setMeetLinkInput(''); }}
+                                  className="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setEditingMeetLink(booking.id)}
+                              className="flex items-center gap-2 text-sm text-primary-600 hover:text-primary-700"
+                            >
+                              <Link className="w-4 h-4" />
+                              Add Meet link manually
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                        {booking.status === 'pending' && (
+                          <>
+                            <button
+                              onClick={() => handleConfirmBooking(booking.id)}
+                              disabled={actionLoading === booking.id}
+                              className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+                            >
+                              {actionLoading === booking.id ? (
+                                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                              ) : (
+                                <>
+                                  <Check className="w-4 h-4" />
+                                  Confirm
+                                </>
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleCancelBooking(booking.id)}
+                              disabled={actionLoading === booking.id}
+                              className="flex-1 flex items-center justify-center gap-1 px-3 py-2 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50"
+                            >
+                              <X className="w-4 h-4" />
+                              Decline
+                            </button>
+                          </>
+                        )}
+                        {booking.status === 'confirmed' && (
+                          <button
+                            onClick={() => handleCancelBooking(booking.id)}
+                            disabled={actionLoading === booking.id}
+                            className="flex items-center justify-center gap-1 px-3 py-2 bg-red-100 text-red-700 text-sm font-medium rounded-lg hover:bg-red-200 transition-colors disabled:opacity-50"
+                          >
+                            <X className="w-4 h-4" />
+                            Cancel Booking
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -2138,10 +2228,73 @@ const TutorDashboard: React.FC = () => {
                               <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded-full">{assignment.subject}</span>
                               <span className="text-xs text-gray-500">Due: {new Date(assignment.due_date).toLocaleDateString()}</span>
                               <span className="text-xs text-gray-500">Max Marks: {assignment.max_marks}</span>
+                              {assignment.submission_date && (
+                                <span className="text-xs text-blue-600">Submitted: {new Date(assignment.submission_date).toLocaleDateString()}</span>
+                              )}
+                              {assignment.obtained_marks !== undefined && assignment.obtained_marks !== null && (
+                                <span className="text-xs text-green-700">Marks: {assignment.obtained_marks}/{assignment.max_marks}</span>
+                              )}
                             </div>
+                            {assignment.submission_url && (
+                              <div className="mt-2">
+                                <a
+                                  href={assignment.submission_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-primary-600 hover:text-primary-700 underline"
+                                >
+                                  View Student Submission
+                                </a>
+                              </div>
+                            )}
+                            {assignment.feedback && (
+                              <p className="text-xs text-gray-600 mt-2"><strong>Feedback:</strong> {assignment.feedback}</p>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center gap-2">
+                          {(assignment.status === 'submitted' || assignment.status === 'graded') && (
+                            <button
+                              onClick={async () => {
+                                const marksInput = window.prompt(
+                                  `Enter obtained marks (0-${assignment.max_marks})`,
+                                  assignment.obtained_marks?.toString() || ''
+                                );
+                                if (marksInput === null) return;
+
+                                const trimmedMarks = marksInput.trim();
+                                const parsedMarks = trimmedMarks === '' ? undefined : Number(trimmedMarks);
+                                if (parsedMarks !== undefined && (!Number.isFinite(parsedMarks) || parsedMarks < 0 || parsedMarks > assignment.max_marks)) {
+                                  setMessage({ type: 'error', text: `Marks must be between 0 and ${assignment.max_marks}.` });
+                                  setTimeout(() => setMessage(null), 3000);
+                                  return;
+                                }
+
+                                const feedbackInput = window.prompt(
+                                  'Enter feedback for student (optional)',
+                                  assignment.feedback || ''
+                                );
+                                if (feedbackInput === null) return;
+
+                                try {
+                                  const updated = await materialsAPI.gradeAssignment(assignment.id, {
+                                    obtained_marks: parsedMarks,
+                                    feedback: feedbackInput || undefined,
+                                  });
+                                  setAssignments(prev => prev.map(a => (a.id === assignment.id ? updated : a)));
+                                  setMessage({ type: 'success', text: 'Assignment result updated successfully!' });
+                                  setTimeout(() => setMessage(null), 2500);
+                                } catch (error) {
+                                  console.error('Failed to update assignment result:', error);
+                                  setMessage({ type: 'error', text: 'Failed to update assignment result.' });
+                                  setTimeout(() => setMessage(null), 3000);
+                                }
+                              }}
+                              className="px-3 py-1 text-xs font-medium rounded-full bg-primary-100 text-primary-700 hover:bg-primary-200 transition-colors"
+                            >
+                              {assignment.status === 'graded' ? 'Update Result' : 'Grade'}
+                            </button>
+                          )}
                           <span className={`px-3 py-1 text-xs font-medium rounded-full ${
                             assignment.status === 'graded' ? 'bg-green-100 text-green-700' :
                             assignment.status === 'submitted' ? 'bg-blue-100 text-blue-700' :
@@ -2583,6 +2736,8 @@ const TutorDashboard: React.FC = () => {
             </div>
           </motion.div>
         )}
+          </div>
+        </div>
       </div>
     </div>
   );
