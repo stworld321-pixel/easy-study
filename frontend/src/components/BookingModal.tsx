@@ -76,16 +76,10 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const { formatPrice, currency } = useCurrency();
   const navigate = useNavigate();
 
-  // Get the price based on session type
-  const getSessionPrice = (type: 'private' | 'group'): number => {
-    if (type === 'group') {
-      return tutor.group_hourly_rate || Math.round(tutor.hourly_rate * 0.6);
-    }
-    return tutor.hourly_rate;
-  };
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarData, setCalendarData] = useState<CalendarDay[]>([]);
   const [calendarSessionDuration, setCalendarSessionDuration] = useState<number>(60);
+  const [studentPlatformFeeRate, setStudentPlatformFeeRate] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
@@ -94,9 +88,39 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const [booking, setBooking] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Get the base session price by session type and selected duration
+  const getSessionPrice = (type: 'private' | 'group'): number => {
+    const durationHours = (calendarSessionDuration || 60) / 60;
+    if (type === 'group') {
+      const groupHourly = tutor.group_hourly_rate || (tutor.hourly_rate * 0.6);
+      return Math.round(groupHourly * durationHours * 100) / 100;
+    }
+    return Math.round(tutor.hourly_rate * durationHours * 100) / 100;
+  };
+
+  const getPlatformFee = (baseAmount: number): number => {
+    return Math.round(baseAmount * studentPlatformFeeRate * 100) / 100;
+  };
+
+  const getStudentPayable = (baseAmount: number): number => {
+    return Math.round((baseAmount + getPlatformFee(baseAmount)) * 100) / 100;
+  };
+
   useEffect(() => {
     fetchCalendar();
   }, [currentMonth, tutor.id, sessionType]);
+
+  useEffect(() => {
+    const fetchPaymentConfig = async () => {
+      try {
+        const config = await paymentsAPI.getConfig();
+        setStudentPlatformFeeRate(config.student_platform_fee_rate ?? 0);
+      } catch {
+        setStudentPlatformFeeRate(0);
+      }
+    };
+    fetchPaymentConfig();
+  }, []);
 
   const fetchCalendar = async () => {
     setLoading(true);
@@ -663,10 +687,24 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                       <span className="text-gray-600">Duration</span>
                       <span className="font-medium text-gray-900">{calendarSessionDuration || 60} minutes</span>
                     </div>
+                    <div className="flex items-center justify-between border-t border-gray-200 pt-4">
+                      <span className="text-gray-600">Session Price</span>
+                      <span className="font-medium text-gray-900">
+                        {formatPrice(getSessionPrice(sessionType))}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-gray-600">
+                        Platform Fee ({(studentPlatformFeeRate * 100).toFixed(2)}%)
+                      </span>
+                      <span className="font-medium text-gray-900">
+                        {formatPrice(getPlatformFee(getSessionPrice(sessionType)))}
+                      </span>
+                    </div>
                     <div className="border-t border-gray-200 pt-4 flex items-center justify-between">
                       <span className="text-gray-900 font-semibold">Total</span>
                       <span className="text-2xl font-bold text-primary-600">
-                        {formatPrice(getSessionPrice(sessionType))}
+                        {formatPrice(getStudentPayable(getSessionPrice(sessionType)))}
                       </span>
                     </div>
                   </div>

@@ -13,7 +13,7 @@ interface CurrencyConfig {
 const CURRENCIES: Record<CurrencyCode, CurrencyConfig> = {
   INR: {
     code: 'INR',
-    symbol: '₹',
+    symbol: '\u20B9',
     name: 'Indian Rupee',
     exchangeRate: 1,
   },
@@ -62,7 +62,7 @@ export const CurrencyProvider: React.FC<{ children: ReactNode }> = ({ children }
     const symbol = currencyConfig.symbol;
 
     if (currency === 'INR') {
-      return `${symbol}${converted.toLocaleString('en-IN')}`;
+      return `${symbol}${converted.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     }
     return `${symbol}${converted.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };

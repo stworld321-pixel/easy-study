@@ -340,7 +340,12 @@ export const paymentsAPI = {
     return response.data;
   },
 
-  getConfig: async (): Promise<{ key_id: string; currency: string; name: string }> => {
+  getConfig: async (): Promise<{
+    key_id: string;
+    currency: string;
+    name: string;
+    student_platform_fee_rate?: number;
+  }> => {
     const response = await api.get('/payments/config');
     return response.data;
   },
@@ -420,6 +425,7 @@ export interface RevenueStats {
   weekly_bookings: number;
   commission_rate: number;
   admission_rate: number;
+  student_platform_fee_rate?: number;
 }
 
 export interface PaymentRecord {
@@ -559,12 +565,30 @@ export const adminAPI = {
   },
 
   // Platform Settings
-  getSettings: async (): Promise<{ minimum_withdrawal_amount: number }> => {
+  getSettings: async (): Promise<{
+    minimum_withdrawal_amount: number;
+    tutor_commission_rate: number;
+    student_platform_fee_rate: number;
+    display_currency: 'INR' | 'USD';
+    inr_to_usd_rate: number;
+  }> => {
     const response = await api.get('/admin/settings');
     return response.data;
   },
 
-  updateSettings: async (data: { minimum_withdrawal_amount?: number }): Promise<{ minimum_withdrawal_amount: number }> => {
+  updateSettings: async (data: {
+    minimum_withdrawal_amount?: number;
+    tutor_commission_rate?: number;
+    student_platform_fee_rate?: number;
+    display_currency?: 'INR' | 'USD';
+    inr_to_usd_rate?: number;
+  }): Promise<{
+    minimum_withdrawal_amount: number;
+    tutor_commission_rate: number;
+    student_platform_fee_rate: number;
+    display_currency: 'INR' | 'USD';
+    inr_to_usd_rate: number;
+  }> => {
     const response = await api.put('/admin/settings', data);
     return response.data;
   },

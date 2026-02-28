@@ -16,6 +16,7 @@ import type { DashboardStats, AdminUser, AdminTutor, AdminBooking, RevenueStats,
 import ChatInbox from '../components/ChatInbox';
 
 type TabType = 'overview' | 'users' | 'tutors' | 'bookings' | 'revenue' | 'blogs' | 'withdrawals' | 'messages';
+type AdminDisplayCurrency = 'INR' | 'USD';
 
 interface BlogFormData {
   title: string;
@@ -76,6 +77,14 @@ const AdminDashboard: React.FC = () => {
   // Platform settings
   const [minWithdrawalAmount, setMinWithdrawalAmount] = useState(10);
   const [minWithdrawalInput, setMinWithdrawalInput] = useState('10');
+  const [commissionRate, setCommissionRate] = useState(5);
+  const [commissionRateInput, setCommissionRateInput] = useState('5');
+  const [studentPlatformFeeRate, setStudentPlatformFeeRate] = useState(0);
+  const [studentPlatformFeeRateInput, setStudentPlatformFeeRateInput] = useState('0');
+  const [displayCurrency, setDisplayCurrency] = useState<AdminDisplayCurrency>('INR');
+  const [displayCurrencyInput, setDisplayCurrencyInput] = useState<AdminDisplayCurrency>('INR');
+  const [inrToUsdRate, setInrToUsdRate] = useState(0.012);
+  const [inrToUsdRateInput, setInrToUsdRateInput] = useState('0.012');
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // Blog editor states
@@ -108,7 +117,13 @@ const AdminDashboard: React.FC = () => {
         blogAPI.getAllBlogs(),
         withdrawalAPI.getAllWithdrawals(),
         withdrawalAPI.getWithdrawalStats(),
-        adminAPI.getSettings().catch(() => ({ minimum_withdrawal_amount: 10 }))
+        adminAPI.getSettings().catch(() => ({
+          minimum_withdrawal_amount: 10,
+          tutor_commission_rate: 0.05,
+          student_platform_fee_rate: 0,
+          display_currency: 'INR' as const,
+          inr_to_usd_rate: 0.012,
+        }))
       ]);
       setStats(statsData);
       setUsers(usersData);
@@ -121,6 +136,14 @@ const AdminDashboard: React.FC = () => {
       setWithdrawalStats(withdrawalStatsData);
       setMinWithdrawalAmount(settingsData.minimum_withdrawal_amount);
       setMinWithdrawalInput(String(settingsData.minimum_withdrawal_amount));
+      setCommissionRate((settingsData.tutor_commission_rate ?? 0.05) * 100);
+      setCommissionRateInput(String((settingsData.tutor_commission_rate ?? 0.05) * 100));
+      setStudentPlatformFeeRate((settingsData.student_platform_fee_rate ?? 0) * 100);
+      setStudentPlatformFeeRateInput(String((settingsData.student_platform_fee_rate ?? 0) * 100));
+      setDisplayCurrency((settingsData.display_currency ?? 'INR') as AdminDisplayCurrency);
+      setDisplayCurrencyInput((settingsData.display_currency ?? 'INR') as AdminDisplayCurrency);
+      setInrToUsdRate(settingsData.inr_to_usd_rate ?? 0.012);
+      setInrToUsdRateInput(String(settingsData.inr_to_usd_rate ?? 0.012));
     } catch (error) {
       console.error('Failed to fetch admin data:', error);
       setMessage({ type: 'error', text: 'Failed to load admin data' });
@@ -132,6 +155,34 @@ const AdminDashboard: React.FC = () => {
   const showMessage = (type: 'success' | 'error', text: string) => {
     setMessage({ type, text });
     setTimeout(() => setMessage(null), 3000);
+  };
+
+  const toInr = (amount: number, sourceCurrency: string = 'INR') => {
+    const safeRate = inrToUsdRate > 0 ? inrToUsdRate : 0.012;
+    const src = (sourceCurrency || 'INR').toUpperCase();
+    if (src === 'USD') {
+      return amount / safeRate;
+    }
+    return amount;
+  };
+
+  const fromInr = (amountInInr: number) => {
+    const safeRate = inrToUsdRate > 0 ? inrToUsdRate : 0.012;
+    if (displayCurrency === 'USD') {
+      return amountInInr * safeRate;
+    }
+    return amountInInr;
+  };
+
+  const formatMoney = (amount: number, sourceCurrency: string = 'INR') => {
+    const value = fromInr(toInr(amount, sourceCurrency));
+    const locale = displayCurrency === 'INR' ? 'en-IN' : 'en-US';
+    return new Intl.NumberFormat(locale, {
+      style: 'currency',
+      currency: displayCurrency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(value);
   };
 
   // User Actions
@@ -365,18 +416,48 @@ const AdminDashboard: React.FC = () => {
     }
   };
 
-  // Save minimum withdrawal setting
-  const handleSaveMinWithdrawal = async () => {
+  // Save platform settings
+  const handleSavePlatformSettings = async () => {
     const amount = parseFloat(minWithdrawalInput);
+    const commissionPercent = parseFloat(commissionRateInput);
+    const studentFeePercent = parseFloat(studentPlatformFeeRateInput);
+    const manualRate = parseFloat(inrToUsdRateInput);
     if (isNaN(amount) || amount < 0) {
       showMessage('error', 'Please enter a valid amount');
       return;
     }
+    if (isNaN(commissionPercent) || commissionPercent < 0 || commissionPercent > 100) {
+      showMessage('error', 'Tutor commission must be between 0 and 100');
+      return;
+    }
+    if (isNaN(studentFeePercent) || studentFeePercent < 0 || studentFeePercent > 100) {
+      showMessage('error', 'Student platform fee must be between 0 and 100');
+      return;
+    }
+    if (isNaN(manualRate) || manualRate <= 0) {
+      showMessage('error', 'INR to USD rate must be greater than 0');
+      return;
+    }
     setSettingsSaving(true);
     try {
-      const result = await adminAPI.updateSettings({ minimum_withdrawal_amount: amount });
+      const result = await adminAPI.updateSettings({
+        minimum_withdrawal_amount: amount,
+        tutor_commission_rate: commissionPercent / 100,
+        student_platform_fee_rate: studentFeePercent / 100,
+        display_currency: displayCurrencyInput,
+        inr_to_usd_rate: manualRate,
+      });
       setMinWithdrawalAmount(result.minimum_withdrawal_amount);
-      showMessage('success', `Minimum withdrawal amount updated to ${amount}`);
+      setMinWithdrawalInput(String(result.minimum_withdrawal_amount));
+      setCommissionRate((result.tutor_commission_rate ?? commissionPercent / 100) * 100);
+      setCommissionRateInput(String((result.tutor_commission_rate ?? commissionPercent / 100) * 100));
+      setStudentPlatformFeeRate((result.student_platform_fee_rate ?? studentFeePercent / 100) * 100);
+      setStudentPlatformFeeRateInput(String((result.student_platform_fee_rate ?? studentFeePercent / 100) * 100));
+      setDisplayCurrency((result.display_currency ?? displayCurrencyInput) as AdminDisplayCurrency);
+      setDisplayCurrencyInput((result.display_currency ?? displayCurrencyInput) as AdminDisplayCurrency);
+      setInrToUsdRate(result.inr_to_usd_rate ?? manualRate);
+      setInrToUsdRateInput(String(result.inr_to_usd_rate ?? manualRate));
+      showMessage('success', 'Platform settings updated successfully');
     } catch {
       showMessage('error', 'Failed to update settings');
     } finally {
@@ -561,11 +642,11 @@ const AdminDashboard: React.FC = () => {
                 <div className="space-y-4">
                   <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
                     <span className="text-gray-600">Total Revenue</span>
-                    <span className="text-2xl font-bold text-green-600">₹{stats.revenue_total.toFixed(2)}</span>
+                    <span className="text-2xl font-bold text-green-600">{formatMoney(stats.revenue_total)}</span>
                   </div>
                   <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
                     <span className="text-gray-600">This Month</span>
-                    <span className="text-xl font-bold text-green-600">₹{stats.revenue_this_month.toFixed(2)}</span>
+                    <span className="text-xl font-bold text-green-600">{formatMoney(stats.revenue_this_month)}</span>
                   </div>
                 </div>
               </div>
@@ -897,7 +978,7 @@ const AdminDashboard: React.FC = () => {
                         {new Date(b.scheduled_at).toLocaleDateString()}<br />
                         {new Date(b.scheduled_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </td>
-                      <td className="px-6 py-4 font-medium">₹{b.price.toFixed(2)}</td>
+                      <td className="px-6 py-4 font-medium">{formatMoney(b.price)}</td>
                       <td className="px-6 py-4">
                         <select
                           value={b.status}
@@ -972,10 +1053,10 @@ const AdminDashboard: React.FC = () => {
                 <div className="bg-white/10 rounded-xl p-4">
                   <div className="flex items-center gap-3 mb-2">
                     <UserPlus className="w-6 h-6" />
-                    <span className="font-semibold">Admission Fee</span>
+                    <span className="font-semibold">Student Platform Fee</span>
                   </div>
-                  <div className="text-3xl font-bold">{revenueStats.admission_rate}%</div>
-                  <p className="text-white/70 text-sm mt-1">One-time fee for new students</p>
+                  <div className="text-3xl font-bold">{(revenueStats.student_platform_fee_rate ?? revenueStats.admission_rate)}%</div>
+                  <p className="text-white/70 text-sm mt-1">Added on top of tutor session amount</p>
                 </div>
               </div>
             </div>
@@ -988,7 +1069,7 @@ const AdminDashboard: React.FC = () => {
                     <DollarSign className="w-6 h-6 text-green-600" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-gray-900">₹{revenueStats.total_revenue.toFixed(2)}</div>
+                    <div className="text-2xl font-bold text-gray-900">{formatMoney(revenueStats.total_revenue)}</div>
                     <div className="text-sm text-gray-500">Total Platform Revenue</div>
                   </div>
                 </div>
@@ -999,8 +1080,8 @@ const AdminDashboard: React.FC = () => {
                     <Percent className="w-6 h-6 text-blue-600" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-gray-900">₹{revenueStats.total_commission_fees.toFixed(2)}</div>
-                    <div className="text-sm text-gray-500">Commission Fees (5%)</div>
+                    <div className="text-2xl font-bold text-gray-900">{formatMoney(revenueStats.total_commission_fees)}</div>
+                    <div className="text-sm text-gray-500">Commission Fees ({revenueStats.commission_rate}%)</div>
                   </div>
                 </div>
               </div>
@@ -1010,8 +1091,8 @@ const AdminDashboard: React.FC = () => {
                     <UserPlus className="w-6 h-6 text-purple-600" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-gray-900">₹{revenueStats.total_admission_fees.toFixed(2)}</div>
-                    <div className="text-sm text-gray-500">Admission Fees (10%)</div>
+                    <div className="text-2xl font-bold text-gray-900">{formatMoney(revenueStats.total_admission_fees)}</div>
+                    <div className="text-sm text-gray-500">Student Platform Fees ({revenueStats.student_platform_fee_rate ?? revenueStats.admission_rate}%)</div>
                   </div>
                 </div>
               </div>
@@ -1021,7 +1102,7 @@ const AdminDashboard: React.FC = () => {
                     <ArrowUpRight className="w-6 h-6 text-orange-600" />
                   </div>
                   <div>
-                    <div className="text-2xl font-bold text-gray-900">₹{revenueStats.total_tutor_payouts.toFixed(2)}</div>
+                    <div className="text-2xl font-bold text-gray-900">{formatMoney(revenueStats.total_tutor_payouts)}</div>
                     <div className="text-sm text-gray-500">Tutor Payouts</div>
                   </div>
                 </div>
@@ -1038,15 +1119,15 @@ const AdminDashboard: React.FC = () => {
                 <div className="space-y-4">
                   <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
                     <span className="text-gray-600">Revenue</span>
-                    <span className="text-xl font-bold text-green-600">₹{revenueStats.monthly_revenue.toFixed(2)}</span>
+                    <span className="text-xl font-bold text-green-600">{formatMoney(revenueStats.monthly_revenue)}</span>
                   </div>
                   <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
                     <span className="text-gray-600">Commission</span>
-                    <span className="font-bold text-blue-600">₹{revenueStats.monthly_commission_fees.toFixed(2)}</span>
+                    <span className="font-bold text-blue-600">{formatMoney(revenueStats.monthly_commission_fees)}</span>
                   </div>
                   <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
-                    <span className="text-gray-600">Admission</span>
-                    <span className="font-bold text-purple-600">₹{revenueStats.monthly_admission_fees.toFixed(2)}</span>
+                    <span className="text-gray-600">Student Fee</span>
+                    <span className="font-bold text-purple-600">{formatMoney(revenueStats.monthly_admission_fees)}</span>
                   </div>
                   <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
                     <span className="text-gray-600">Bookings</span>
@@ -1071,7 +1152,7 @@ const AdminDashboard: React.FC = () => {
                   </div>
                   <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
                     <span className="text-gray-600">Weekly Revenue</span>
-                    <span className="font-bold text-green-600">₹{revenueStats.weekly_revenue.toFixed(2)}</span>
+                    <span className="font-bold text-green-600">{formatMoney(revenueStats.weekly_revenue)}</span>
                   </div>
                   <div className="flex justify-between items-center p-4 bg-gray-50 rounded-xl">
                     <span className="text-gray-600">Weekly Bookings</span>
@@ -1093,7 +1174,7 @@ const AdminDashboard: React.FC = () => {
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Tutor</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Session</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Commission</th>
-                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Admission</th>
+                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Student Fee</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Platform Fee</th>
                     <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600">Status</th>
                   </tr>
@@ -1108,12 +1189,12 @@ const AdminDashboard: React.FC = () => {
                         )}
                       </td>
                       <td className="px-6 py-4 text-gray-600">{p.tutor_name}</td>
-                      <td className="px-6 py-4 font-medium">₹{p.session_amount.toFixed(2)}</td>
-                      <td className="px-6 py-4 text-blue-600">₹{p.commission_fee.toFixed(2)}</td>
+                      <td className="px-6 py-4 font-medium">{formatMoney(p.session_amount, p.currency)}</td>
+                      <td className="px-6 py-4 text-blue-600">{formatMoney(p.commission_fee, p.currency)}</td>
                       <td className="px-6 py-4 text-purple-600">
-                        {p.admission_fee > 0 ? `₹${p.admission_fee.toFixed(2)}` : '-'}
+                        {p.admission_fee > 0 ? formatMoney(p.admission_fee, p.currency) : '-'}
                       </td>
-                      <td className="px-6 py-4 font-bold text-green-600">₹{p.total_platform_fee.toFixed(2)}</td>
+                      <td className="px-6 py-4 font-bold text-green-600">{formatMoney(p.total_platform_fee, p.currency)}</td>
                       <td className="px-6 py-4">
                         <span className={`px-3 py-1 text-xs font-medium rounded-full ${
                           p.status === 'completed' ? 'bg-green-100 text-green-700' :
@@ -1149,7 +1230,7 @@ const AdminDashboard: React.FC = () => {
                     <Clock className="w-8 h-8 text-yellow-500" />
                   </div>
                   <div className="mt-2 text-sm text-yellow-700 font-medium">
-                    ₹{withdrawalStats.pending_amount.toFixed(2)}
+                    {formatMoney(withdrawalStats.pending_amount)}
                   </div>
                 </div>
 
@@ -1162,7 +1243,7 @@ const AdminDashboard: React.FC = () => {
                     <CheckCircle className="w-8 h-8 text-blue-500" />
                   </div>
                   <div className="mt-2 text-sm text-blue-700 font-medium">
-                    ₹{withdrawalStats.approved_amount.toFixed(2)}
+                    {formatMoney(withdrawalStats.approved_amount)}
                   </div>
                 </div>
 
@@ -1175,7 +1256,7 @@ const AdminDashboard: React.FC = () => {
                     <Check className="w-8 h-8 text-green-500" />
                   </div>
                   <div className="mt-2 text-sm text-green-700 font-medium">
-                    ₹{withdrawalStats.completed_amount.toFixed(2)}
+                    {formatMoney(withdrawalStats.completed_amount)}
                   </div>
                 </div>
 
@@ -1188,38 +1269,98 @@ const AdminDashboard: React.FC = () => {
                     <X className="w-8 h-8 text-red-500" />
                   </div>
                   <div className="mt-2 text-sm text-red-700 font-medium">
-                    ₹{withdrawalStats.rejected_amount.toFixed(2)}
+                    {formatMoney(withdrawalStats.rejected_amount)}
                   </div>
                 </div>
               </div>
             )}
 
-            {/* Minimum Withdrawal Setting */}
+            {/* Platform Settings */}
             <div className="bg-white rounded-2xl shadow-sm p-6 mb-6 border border-gray-100">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Withdrawal Settings</h3>
-              <div className="flex items-center gap-4">
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Platform Settings</h3>
+              <div className="grid md:grid-cols-5 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Display Currency</label>
+                  <select
+                    value={displayCurrencyInput}
+                    onChange={(e) => setDisplayCurrencyInput(e.target.value as AdminDisplayCurrency)}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  >
+                    <option value="INR">INR (₹)</option>
+                    <option value="USD">USD ($)</option>
+                  </select>
+                  <p className="text-xs text-gray-400 mt-1">Admin report currency.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">INR to USD Rate</label>
+                  <input
+                    type="number"
+                    value={inrToUsdRateInput}
+                    onChange={(e) => setInrToUsdRateInput(e.target.value)}
+                    min="0.000001"
+                    step="0.000001"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">1 INR = X USD (manual update).</p>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-600 mb-1">Minimum Withdrawal Amount</label>
                   <div className="flex items-center gap-2">
-                    <span className="text-gray-500 font-medium">₹</span>
+                    <span className="text-gray-500 font-medium">{displayCurrencyInput === 'USD' ? '$' : '₹'}</span>
                     <input
                       type="number"
                       value={minWithdrawalInput}
                       onChange={(e) => setMinWithdrawalInput(e.target.value)}
                       min="0"
                       step="1"
-                      className="w-32 px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
                     />
-                    <button
-                      onClick={handleSaveMinWithdrawal}
-                      disabled={settingsSaving || parseFloat(minWithdrawalInput) === minWithdrawalAmount}
-                      className="px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {settingsSaving ? 'Saving...' : 'Save'}
-                    </button>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">Tutors must earn at least this amount before they can request a withdrawal</p>
+                  <p className="text-xs text-gray-400 mt-1">Tutors need at least this amount to request withdrawal.</p>
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Tutor Commission (%)</label>
+                  <input
+                    type="number"
+                    value={commissionRateInput}
+                    onChange={(e) => setCommissionRateInput(e.target.value)}
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Deducted from tutor session amount.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Student Platform Fee (%)</label>
+                  <input
+                    type="number"
+                    value={studentPlatformFeeRateInput}
+                    onChange={(e) => setStudentPlatformFeeRateInput(e.target.value)}
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Added on top of tutor session amount.</p>
+                </div>
+              </div>
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  onClick={handleSavePlatformSettings}
+                  disabled={
+                    settingsSaving ||
+                    (parseFloat(minWithdrawalInput) === minWithdrawalAmount &&
+                      parseFloat(commissionRateInput) === commissionRate &&
+                      parseFloat(studentPlatformFeeRateInput) === studentPlatformFeeRate &&
+                      displayCurrencyInput === displayCurrency &&
+                      parseFloat(inrToUsdRateInput) === inrToUsdRate)
+                  }
+                  className="px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {settingsSaving ? 'Saving...' : 'Save Settings'}
+                </button>
+                <span className="text-sm text-gray-500">Student pays = Session Price + Platform Fee</span>
               </div>
             </div>
 
@@ -1283,7 +1424,7 @@ const AdminDashboard: React.FC = () => {
                         <div className="flex justify-between">
                           <span className="text-gray-600">Amount</span>
                           <span className="font-bold text-lg text-green-600">
-                            {selectedWithdrawal.currency} {selectedWithdrawal.amount.toFixed(2)}
+                            {formatMoney(selectedWithdrawal.amount, selectedWithdrawal.currency)}
                           </span>
                         </div>
                         <div className="flex justify-between">
@@ -1385,7 +1526,7 @@ const AdminDashboard: React.FC = () => {
                         <div className="text-sm text-gray-500">{w.tutor_email}</div>
                       </td>
                       <td className="px-6 py-4 font-bold text-gray-900">
-                        {w.currency} {w.amount.toFixed(2)}
+                        {formatMoney(w.amount, w.currency)}
                       </td>
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-2">

@@ -242,6 +242,7 @@ const FindTutors: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedTutorForBooking, setSelectedTutorForBooking] = useState<TutorProfile | null>(null);
+  const { formatPrice } = useCurrency();
 
   // Handle book trial - check if user is logged in
   const handleBookTrial = (tutor: TutorProfile) => {
@@ -598,7 +599,7 @@ const FindTutors: React.FC = () => {
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-3">
                   <label className="text-sm font-semibold text-gray-700">Price Range</label>
-                  <span className="text-sm font-bold text-primary-600">${priceRange[0]} - ${priceRange[1]}</span>
+                  <span className="text-sm font-bold text-primary-600">{formatPrice(priceRange[0])} - {formatPrice(priceRange[1])}</span>
                 </div>
                 <div className="px-2">
                   <input
@@ -610,8 +611,8 @@ const FindTutors: React.FC = () => {
                     className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-primary-600"
                   />
                   <div className="flex justify-between text-xs text-gray-500 mt-2">
-                    <span>$0</span>
-                    <span>$200+</span>
+                    <span>{formatPrice(0)}</span>
+                    <span>{formatPrice(200)}+</span>
                   </div>
                 </div>
               </div>

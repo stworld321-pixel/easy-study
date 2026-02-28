@@ -9,9 +9,10 @@ from app.models.user import User, UserRole
 from app.models.tutor import TutorProfile
 from app.models.booking import Booking, BookingStatus
 from app.models.payment import Payment, PaymentStatus
+from app.models.platform_settings import PlatformSettings
 from app.routes.auth import get_current_user
 from app.services.notification_service import notification_service
-from app.services.payment_service import payment_service, COMMISSION_RATE, ADMISSION_RATE
+from app.services.payment_service import payment_service
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -452,6 +453,7 @@ class RevenueStatsResponse(BaseModel):
     weekly_revenue: float
     weekly_bookings: int
     commission_rate: float
+    student_platform_fee_rate: float
     admission_rate: float
 
 
@@ -488,6 +490,7 @@ class TutorEarningsResponse(BaseModel):
 async def get_revenue_stats(admin: User = Depends(get_admin_user)):
     """Get platform revenue statistics"""
     try:
+        settings = await PlatformSettings.get_or_create()
         stats = await payment_service.get_revenue_stats()
         return RevenueStatsResponse(
             total_revenue=stats.total_revenue,
@@ -502,8 +505,10 @@ async def get_revenue_stats(admin: User = Depends(get_admin_user)):
             monthly_bookings=stats.monthly_bookings,
             weekly_revenue=stats.weekly_revenue,
             weekly_bookings=stats.weekly_bookings,
-            commission_rate=COMMISSION_RATE * 100,
-            admission_rate=ADMISSION_RATE * 100
+            commission_rate=settings.tutor_commission_rate * 100,
+            student_platform_fee_rate=settings.student_platform_fee_rate * 100,
+            # Backward-compatible field name used by current frontend cards.
+            admission_rate=settings.student_platform_fee_rate * 100
         )
     except Exception as e:
         print(f"Error getting revenue stats: {e}")
@@ -616,36 +621,67 @@ async def get_tutor_earnings(tutor_id: str, admin: User = Depends(get_admin_user
 
 class PlatformSettingsResponse(BaseModel):
     minimum_withdrawal_amount: float
+    tutor_commission_rate: float
+    student_platform_fee_rate: float
+    display_currency: str
+    inr_to_usd_rate: float
 
 class PlatformSettingsUpdate(BaseModel):
     minimum_withdrawal_amount: Optional[float] = None
+    tutor_commission_rate: Optional[float] = None
+    student_platform_fee_rate: Optional[float] = None
+    display_currency: Optional[str] = None
+    inr_to_usd_rate: Optional[float] = None
 
 
 @router.get("/settings", response_model=PlatformSettingsResponse)
 async def get_platform_settings(admin: User = Depends(get_admin_user)):
     """Get platform settings"""
-    from app.models.platform_settings import PlatformSettings
     settings = await PlatformSettings.get_or_create()
     return PlatformSettingsResponse(
-        minimum_withdrawal_amount=settings.minimum_withdrawal_amount
+        minimum_withdrawal_amount=settings.minimum_withdrawal_amount,
+        tutor_commission_rate=settings.tutor_commission_rate,
+        student_platform_fee_rate=settings.student_platform_fee_rate,
+        display_currency=settings.display_currency,
+        inr_to_usd_rate=settings.inr_to_usd_rate
     )
 
 
 @router.put("/settings", response_model=PlatformSettingsResponse)
 async def update_platform_settings(data: PlatformSettingsUpdate, admin: User = Depends(get_admin_user)):
     """Update platform settings"""
-    from app.models.platform_settings import PlatformSettings
     settings = await PlatformSettings.get_or_create()
 
     if data.minimum_withdrawal_amount is not None:
         if data.minimum_withdrawal_amount < 0:
             raise HTTPException(status_code=400, detail="Minimum withdrawal amount cannot be negative")
         settings.minimum_withdrawal_amount = data.minimum_withdrawal_amount
+    if data.tutor_commission_rate is not None:
+        if data.tutor_commission_rate < 0 or data.tutor_commission_rate > 1:
+            raise HTTPException(status_code=400, detail="Tutor commission rate must be between 0 and 1")
+        settings.tutor_commission_rate = data.tutor_commission_rate
+    if data.student_platform_fee_rate is not None:
+        if data.student_platform_fee_rate < 0 or data.student_platform_fee_rate > 1:
+            raise HTTPException(status_code=400, detail="Student platform fee rate must be between 0 and 1")
+        settings.student_platform_fee_rate = data.student_platform_fee_rate
+    if data.display_currency is not None:
+        currency = data.display_currency.upper()
+        if currency not in {"INR", "USD"}:
+            raise HTTPException(status_code=400, detail="Display currency must be INR or USD")
+        settings.display_currency = currency
+    if data.inr_to_usd_rate is not None:
+        if data.inr_to_usd_rate <= 0:
+            raise HTTPException(status_code=400, detail="INR to USD rate must be greater than 0")
+        settings.inr_to_usd_rate = data.inr_to_usd_rate
 
     settings.updated_at = datetime.utcnow()
     settings.updated_by = str(admin.id)
     await settings.save()
 
     return PlatformSettingsResponse(
-        minimum_withdrawal_amount=settings.minimum_withdrawal_amount
+        minimum_withdrawal_amount=settings.minimum_withdrawal_amount,
+        tutor_commission_rate=settings.tutor_commission_rate,
+        student_platform_fee_rate=settings.student_platform_fee_rate,
+        display_currency=settings.display_currency,
+        inr_to_usd_rate=settings.inr_to_usd_rate
     )

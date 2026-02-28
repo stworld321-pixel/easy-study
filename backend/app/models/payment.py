@@ -30,8 +30,12 @@ class Payment(Document):
     # Fee breakdown
     admission_fee: float = 0.0  # 10% for new students (first booking)
     commission_fee: float = 0.0  # 5% platform commission
+    student_platform_fee: float = 0.0  # Additional fee charged to student
     total_platform_fee: float = 0.0  # admission_fee + commission_fee
     tutor_earnings: float = 0.0  # session_amount - total_platform_fee
+    charge_amount: float = 0.0  # Actual amount charged to student
+    tutor_commission_rate: float = 0.05
+    student_platform_fee_rate: float = 0.0
 
     # Razorpay fields
     razorpay_order_id: Optional[str] = None

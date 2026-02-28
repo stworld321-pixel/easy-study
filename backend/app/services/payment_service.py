@@ -2,11 +2,12 @@ from datetime import datetime, timedelta
 from typing import Optional
 from app.models.payment import Payment, PaymentStatus, StudentTutorRelation, RevenueStats
 from app.models.booking import Booking
+from app.models.platform_settings import PlatformSettings
 
 
-# Platform fee percentages
-COMMISSION_RATE = 0.05  # 5% commission on every session
-ADMISSION_RATE = 0.10   # 10% admission fee for new students
+# Default rates (used when platform settings doc is not available)
+DEFAULT_COMMISSION_RATE = 0.05
+DEFAULT_STUDENT_PLATFORM_FEE_RATE = 0.0
 
 
 class PaymentService:
@@ -22,20 +23,34 @@ class PaymentService:
         return relation is None
 
     @staticmethod
-    def calculate_fees(session_amount: float, is_first_booking: bool) -> dict:
-        """Calculate platform fees for a booking"""
-        commission_fee = round(session_amount * COMMISSION_RATE, 2)
-        admission_fee = round(session_amount * ADMISSION_RATE, 2) if is_first_booking else 0.0
-        total_platform_fee = round(commission_fee + admission_fee, 2)
-        tutor_earnings = round(session_amount - total_platform_fee, 2)
+    async def get_platform_rates() -> tuple[float, float]:
+        settings = await PlatformSettings.get_or_create()
+        commission = settings.tutor_commission_rate
+        student_fee = settings.student_platform_fee_rate
+        return max(0.0, float(commission)), max(0.0, float(student_fee))
+
+    @staticmethod
+    async def calculate_fees(session_amount: float, is_first_booking: bool) -> dict:
+        """Calculate fee and payout breakdown for a booking."""
+        commission_rate, student_platform_fee_rate = await PaymentService.get_platform_rates()
+        commission_fee = round(session_amount * commission_rate, 2)
+        student_platform_fee = round(session_amount * student_platform_fee_rate, 2)
+        total_platform_fee = round(commission_fee + student_platform_fee, 2)
+        tutor_earnings = round(session_amount - commission_fee, 2)
+        charge_amount = round(session_amount + student_platform_fee, 2)
 
         return {
             "session_amount": session_amount,
             "commission_fee": commission_fee,
-            "admission_fee": admission_fee,
+            # Keep admission_fee populated for backward compatibility in admin UI/reports.
+            "admission_fee": student_platform_fee,
+            "student_platform_fee": student_platform_fee,
             "total_platform_fee": total_platform_fee,
             "tutor_earnings": tutor_earnings,
-            "is_first_booking": is_first_booking
+            "charge_amount": charge_amount,
+            "tutor_commission_rate": commission_rate,
+            "student_platform_fee_rate": student_platform_fee_rate,
+            "is_first_booking": is_first_booking,
         }
 
     @staticmethod
@@ -51,7 +66,7 @@ class PaymentService:
         is_first = await PaymentService.is_first_booking(student_id, tutor_id)
 
         # Calculate fees
-        fees = PaymentService.calculate_fees(session_amount, is_first)
+        fees = await PaymentService.calculate_fees(session_amount, is_first)
 
         # Create payment record
         payment = Payment(
@@ -62,8 +77,12 @@ class PaymentService:
             currency=currency,
             admission_fee=fees["admission_fee"],
             commission_fee=fees["commission_fee"],
+            student_platform_fee=fees["student_platform_fee"],
             total_platform_fee=fees["total_platform_fee"],
             tutor_earnings=fees["tutor_earnings"],
+            charge_amount=fees["charge_amount"],
+            tutor_commission_rate=fees["tutor_commission_rate"],
+            student_platform_fee_rate=fees["student_platform_fee_rate"],
             is_first_booking=is_first,
             status=PaymentStatus.PENDING
         )
@@ -210,17 +229,18 @@ class PaymentService:
             "fees": {
                 "commission_fee": {
                     "amount": payment.commission_fee,
-                    "rate": f"{COMMISSION_RATE * 100}%",
-                    "description": "Platform commission"
+                    "rate": f"{payment.tutor_commission_rate * 100}%",
+                    "description": "Tutor commission"
                 },
                 "admission_fee": {
                     "amount": payment.admission_fee,
-                    "rate": f"{ADMISSION_RATE * 100}%" if payment.is_first_booking else "0%",
-                    "description": "New student admission fee" if payment.is_first_booking else "N/A (returning student)"
+                    "rate": f"{payment.student_platform_fee_rate * 100}%",
+                    "description": "Student platform fee"
                 }
             },
             "total_platform_fee": payment.total_platform_fee,
             "tutor_earnings": payment.tutor_earnings,
+            "charge_amount": payment.charge_amount or payment.session_amount,
             "is_first_booking": payment.is_first_booking,
             "status": payment.status
         }

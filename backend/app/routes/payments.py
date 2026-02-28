@@ -10,6 +10,7 @@ import logging
 from app.models.user import User
 from app.models.booking import Booking
 from app.models.payment import Payment, PaymentStatus
+from app.models.platform_settings import PlatformSettings
 from app.routes.auth import get_current_user
 from app.services.razorpay_service import razorpay_service
 from app.services.payment_service import payment_service
@@ -85,19 +86,21 @@ async def create_razorpay_order(
     if payment.status == PaymentStatus.COMPLETED:
         raise HTTPException(status_code=400, detail="Payment already completed")
 
+    charge_amount = payment.charge_amount if payment.charge_amount and payment.charge_amount > 0 else payment.session_amount
+
     # Guard before hitting Razorpay API.
-    if payment.session_amount < MIN_ORDER_AMOUNT:
+    if charge_amount < MIN_ORDER_AMOUNT:
         return CreateOrderResponse(
             success=False,
             error=(
-                f"Order amount ({payment.currency} {payment.session_amount:.2f}) is below minimum allowed "
+                f"Order amount ({payment.currency} {charge_amount:.2f}) is below minimum allowed "
                 f"({payment.currency} {MIN_ORDER_AMOUNT:.2f})."
             )
         )
 
     # Create Razorpay order
     order_result = razorpay_service.create_order(
-        amount=payment.session_amount,
+        amount=charge_amount,
         currency=payment.currency,
         receipt=f"booking_{request.booking_id}",
         notes={
@@ -246,9 +249,11 @@ async def get_my_payments(current_user: User = Depends(get_current_user)):
 @router.get("/config")
 async def get_razorpay_config():
     """Get Razorpay public configuration"""
+    platform_settings = await PlatformSettings.get_or_create()
     return {
         "key_id": settings.RAZORPAY_KEY_ID,
         "currency": "INR",
         "name": "Zeal Catalyst",
-        "description": "Tutoring Platform"
+        "description": "Tutoring Platform",
+        "student_platform_fee_rate": platform_settings.student_platform_fee_rate
     }
