@@ -9,6 +9,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from app.models.tutor import TutorProfile
+from app.core.config import settings
 
 GOOGLE_CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 logger = logging.getLogger(__name__)
@@ -24,20 +25,58 @@ class TutorGoogleCalendarService:
             token=tutor.google_access_token,
             refresh_token=tutor.google_refresh_token,
             token_uri=tutor.google_token_uri or "https://oauth2.googleapis.com/token",
+            client_id=settings.GOOGLE_CLIENT_ID or None,
+            client_secret=settings.GOOGLE_CLIENT_SECRET or None,
             scopes=tutor.google_scopes or GOOGLE_CALENDAR_SCOPES,
             expiry=tutor.google_token_expiry,
         )
 
     @staticmethod
+    async def _mark_calendar_disconnected(tutor: TutorProfile) -> None:
+        """Clear invalid OAuth state so UI/API can require reconnect explicitly."""
+        tutor.google_calendar_connected = False
+        tutor.google_access_token = None
+        tutor.google_refresh_token = None
+        tutor.google_token_expiry = None
+        tutor.google_scopes = None
+        tutor.updated_at = datetime.utcnow()
+        await tutor.save()
+
+    @staticmethod
     async def _refresh_if_needed(tutor: TutorProfile, creds: Credentials) -> Credentials:
-        # Refresh whenever token is invalid/expired and refresh token exists.
-        if (not creds.valid or creds.expired) and creds.refresh_token:
-            creds.refresh(Request())
+        # Proactively refresh if token is invalid, expired, or about to expire (within 5 minutes).
+        now_utc = datetime.now(timezone.utc)
+        expiry = creds.expiry
+        if expiry and expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        should_refresh = (not creds.valid) or bool(creds.expired) or bool(expiry and (expiry - now_utc) < timedelta(minutes=5))
+
+        if should_refresh:
+            if not creds.refresh_token:
+                logger.warning(
+                    "Tutor %s Google token refresh failed: missing refresh_token. Forcing reconnect.",
+                    tutor.id,
+                )
+                await TutorGoogleCalendarService._mark_calendar_disconnected(tutor)
+                return creds
+
+            try:
+                creds.refresh(Request())
+            except Exception:
+                logger.exception(
+                    "Tutor %s Google token refresh failed (likely revoked/expired refresh token). Forcing reconnect.",
+                    tutor.id,
+                )
+                await TutorGoogleCalendarService._mark_calendar_disconnected(tutor)
+                return creds
+
             tutor.google_access_token = creds.token
             tutor.google_refresh_token = creds.refresh_token or tutor.google_refresh_token
             tutor.google_scopes = list(creds.scopes) if creds.scopes else tutor.google_scopes
             tutor.google_token_uri = creds.token_uri or tutor.google_token_uri
             tutor.google_token_expiry = creds.expiry
+            tutor.google_calendar_connected = True
+            tutor.updated_at = datetime.utcnow()
             await tutor.save()
         return creds
 
