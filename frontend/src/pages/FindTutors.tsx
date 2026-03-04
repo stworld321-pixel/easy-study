@@ -469,7 +469,7 @@ const FindTutors: React.FC = () => {
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6">
               Find Your Perfect
               <span className="block text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-orange-300">
-                Tutor Today
+                Subject Coach
               </span>
             </h1>
 

@@ -15,15 +15,15 @@ const features: FeatureData[] = [
   {
     icon: Users,
     animationFile: 'teacher.json',
-    title: 'Expert Tutors',
-    description: 'Learn from qualified professionals with verified credentials and proven teaching experience.',
+    title: 'Subject Matter Specialists',
+    description: 'Learn from qualified course instructors with verified credentials and proven mentoring experience.',
     gradient: 'from-blue-500 to-cyan-500',
   },
   {
     icon: Calendar,
     animationFile: 'calendar.json',
-    title: 'Flexible Scheduling',
-    description: 'Book lessons at your convenience. Choose times that work with your busy schedule.',
+    title: '1-on-1 Mentoring',
+    description: 'Book sessions at your convenience. Choose slots that work with your busy schedule.',
     gradient: 'from-purple-500 to-pink-500',
   },
   {
@@ -43,8 +43,8 @@ const features: FeatureData[] = [
   {
     icon: Globe,
     animationFile: 'globe.json',
-    title: 'Global Community',
-    description: 'Connect with tutors from around the world. Learn in any language you prefer.',
+    title: 'Module Experts',
+    description: 'Connect with subject instructors from around the world. Learn in any language you prefer.',
     gradient: 'from-indigo-500 to-violet-500',
   },
   {
@@ -107,7 +107,7 @@ const Features: React.FC = () => {
             Why Choose <span className="gradient-text">Zeal Catalyst</span>
           </h2>
           <p className="section-subtitle mx-auto">
-            We provide the best online tutoring experience with features designed to help you succeed
+            We provide the best online mentoring experience with features designed to help you succeed
           </p>
         </motion.div>
 

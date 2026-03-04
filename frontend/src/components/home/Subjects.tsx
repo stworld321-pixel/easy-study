@@ -22,7 +22,7 @@ const SubjectIcon: React.FC<{ icon: string; emoji: string; name: string }> = ({ 
 
 const subjects = [
   {
-    name: 'Mathematics',
+    name: 'All school subjects',
     icon: '/icons/maths.gif',
     emoji: '📐',
     color: 'from-blue-500 to-cyan-500',
@@ -30,7 +30,7 @@ const subjects = [
     count: 450
   },
   {
-    name: 'Physics',
+    name: 'Life skills',
     icon: '/icons/physics.gif',
     emoji: '⚛️',
     color: 'from-purple-500 to-pink-500',
@@ -38,7 +38,7 @@ const subjects = [
     count: 320
   },
   {
-    name: 'Chemistry',
+    name: 'IT courses',
     icon: '/icons/chemistry.gif',
     emoji: '🧪',
     color: 'from-green-500 to-emerald-500',
@@ -46,7 +46,7 @@ const subjects = [
     count: 280
   },
   {
-    name: 'English',
+    name: 'Traditional skills',
     icon: '/icons/english-language.gif',
     emoji: '📚',
     color: 'from-orange-500 to-amber-500',
@@ -54,7 +54,7 @@ const subjects = [
     count: 520
   },
   {
-    name: 'Computer Science',
+    name: 'Self grooming',
     icon: '/icons/computer science.gif',
     emoji: '💻',
     color: 'from-indigo-500 to-violet-500',
@@ -70,7 +70,7 @@ const subjects = [
     count: 120
   },
   {
-    name: 'Martial Arts',
+    name: 'Chinese cooking',
     icon: '/icons/material arts.gif',
     emoji: '🥋',
     color: 'from-red-500 to-orange-500',
@@ -124,10 +124,10 @@ const Subjects: React.FC = () => {
           className="text-center mb-16"
         >
           <h2 className="section-title mb-4">
-            Explore <span className="gradient-text">Popular Subjects</span>
+            Explore <span className="gradient-text">Popular Courses</span>
           </h2>
           <p className="section-subtitle mx-auto">
-            Find expert tutors across a wide range of subjects
+            Find expert tutors across a wide range of courses
           </p>
         </motion.div>
 
@@ -151,7 +151,7 @@ const Subjects: React.FC = () => {
                     <SubjectIcon icon={subject.icon} emoji={subject.emoji} name={subject.name} />
                   </div>
                   <h3 className="font-semibold text-gray-900 mb-1">{subject.name}</h3>
-                  <p className="text-sm text-gray-500">{subject.count}+ tutors</p>
+                  <p className="text-sm text-gray-500">{subject.count}+ mentors</p>
                 </div>
               </Link>
             </motion.div>

@@ -8,21 +8,21 @@ const testimonials = [
     role: 'University Student',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Emily',
     rating: 5,
-    text: "Zeal Catalyst transformed my learning experience. My calculus tutor explained concepts in ways my professor couldn't. I went from struggling to acing my exams!",
+    text: "Zeal Catalyst transformed my learning experience. My calculus instructor explained concepts in ways my professor couldn't. I went from struggling to acing my exams!",
   },
   {
     name: 'Michael Chen',
     role: 'Software Developer',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Michael',
     rating: 5,
-    text: 'I needed to level up my Python skills for a career change. My tutor created a custom learning plan that helped me land my dream job in just 3 months.',
+    text: 'I needed to level up my Python skills for a career change. My instructor created a custom learning plan that helped me land my dream job in just 3 months.',
   },
   {
     name: 'Sarah Martinez',
     role: 'High School Student',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=SarahM',
     rating: 5,
-    text: 'The IELTS prep tutoring was incredible. My tutor gave me strategies and practice that boosted my score from 6.0 to 8.0. Highly recommend!',
+    text: 'The IELTS prep mentoring was incredible. My tutor gave me strategies and practice that boosted my score from 6.0 to 8.0. Highly recommend!',
   },
   {
     name: 'David Kim',
@@ -36,14 +36,14 @@ const testimonials = [
     role: 'Parent',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Lisa',
     rating: 5,
-    text: "My daughter's confidence in math has skyrocketed. Her tutor makes learning fun and engaging. Best investment in her education we've ever made.",
+    text: "My daughter's confidence in math has skyrocketed. Her instructor makes learning fun and engaging. Best investment in her education we've ever made.",
   },
   {
     name: 'James Wilson',
     role: 'Graduate Student',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=JamesW',
     rating: 5,
-    text: 'Found an amazing data science tutor who helped me with my thesis project. The one-on-one attention made complex topics finally click.',
+    text: 'Found an amazing data science expert who helped me with my thesis project. The one-on-one attention made complex topics finally click.',
   },
 ];
 
@@ -60,10 +60,10 @@ const Testimonials: React.FC = () => {
           className="text-center mb-16"
         >
           <h2 className="section-title mb-4">
-            What Our <span className="gradient-text">Students Say</span>
+            What Our <span className="gradient-text">Learners Say</span>
           </h2>
           <p className="section-subtitle mx-auto">
-            Join thousands of satisfied learners who achieved their goals with Zeal Catalyst
+            Join thousands of students who are already learning with subject experts.
           </p>
         </motion.div>
 

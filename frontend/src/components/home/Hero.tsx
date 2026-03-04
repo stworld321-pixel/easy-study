@@ -41,13 +41,13 @@ const Hero: React.FC = () => {
 
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 leading-tight mb-6">
               Learn From
-              <span className="block gradient-text">Expert Tutors</span>
+              <span className="block gradient-text">Subject Matter Specialists</span>
               Worldwide
             </h1>
 
             <p className="text-lg md:text-xl text-gray-600 mb-8 max-w-xl mx-auto lg:mx-0">
-              Connect with qualified tutors for personalized learning experiences.
-              Flexible scheduling, expert instruction, and results that matter.
+              Learn from world-class subject experts with personalized mentoring experiences.
+              Flexible scheduling, proven methods, and outcomes that matter.
             </p>
 
             {/* Search Bar */}
@@ -61,7 +61,7 @@ const Hero: React.FC = () => {
                 />
               </div>
               <Link to="/find-tutors" className="btn-primary px-8 whitespace-nowrap">
-                Find Tutors
+                Find Experts
               </Link>
             </div>
 

@@ -14,7 +14,7 @@ const Footer: React.FC = () => {
               <span className="text-2xl font-bold text-white">Zeal Catalyst</span>
             </Link>
             <p className="text-gray-400 leading-relaxed">
-              Connect with expert tutors worldwide. Personalized learning experiences tailored to your goals.
+              Connect with course experts worldwide. Personalized learning experiences tailored to your goals.
             </p>
             <div className="flex space-x-4">
               <a href="#" className="w-10 h-10 bg-gray-800 rounded-lg flex items-center justify-center hover:bg-primary-600 transition-colors">
@@ -49,29 +49,29 @@ const Footer: React.FC = () => {
                 <Link to="/faqs" className="hover:text-white transition-colors">FAQs</Link>
               </li>
               <li>
-                <Link to="/register?role=tutor" className="hover:text-white transition-colors">Become a Tutor</Link>
+                <Link to="/register?role=tutor" className="hover:text-white transition-colors">Become a Course Expert</Link>
               </li>
             </ul>
           </div>
 
           {/* Subjects */}
           <div>
-            <h3 className="text-white font-semibold text-lg mb-6">Popular Subjects</h3>
+            <h3 className="text-white font-semibold text-lg mb-6">Popular Courses</h3>
             <ul className="space-y-4">
               <li>
-                <Link to="/find-tutors?subject=Mathematics" className="hover:text-white transition-colors">Mathematics</Link>
+                <Link to="/find-tutors?subject=All school subjects" className="hover:text-white transition-colors">All school subjects</Link>
               </li>
               <li>
-                <Link to="/find-tutors?subject=Physics" className="hover:text-white transition-colors">Physics</Link>
+                <Link to="/find-tutors?subject=Traditional skills" className="hover:text-white transition-colors">Ancient & Traditional skills</Link>
               </li>
               <li>
-                <Link to="/find-tutors?subject=English" className="hover:text-white transition-colors">English</Link>
+                <Link to="/find-tutors?subject=Chinese cooking" className="hover:text-white transition-colors">Chinese cooking</Link>
               </li>
               <li>
-                <Link to="/find-tutors?subject=Computer Science" className="hover:text-white transition-colors">Computer Science</Link>
+                <Link to="/find-tutors?subject=Research" className="hover:text-white transition-colors">Research</Link>
               </li>
               <li>
-                <Link to="/find-tutors?subject=Data Science" className="hover:text-white transition-colors">Data Science</Link>
+                <Link to="/find-tutors?subject=Self grooming" className="hover:text-white transition-colors">Self-grooming</Link>
               </li>
             </ul>
           </div>

@@ -56,8 +56,8 @@ const About: React.FC = () => {
           >
             <h1 className="text-4xl md:text-5xl font-bold mb-6">About Zeal Catalyst</h1>
             <p className="text-xl text-white/80">
-              We're on a mission to democratize education by connecting learners with
-              expert tutors from around the world.
+              We bridge the gap between learners and global subject experts through
+              accessible, inclusive, and goal-oriented mentoring.
             </p>
           </motion.div>
         </div>
@@ -100,9 +100,12 @@ const About: React.FC = () => {
               </div>
               <h3 className="text-2xl font-bold text-gray-900 mb-4">Our Mission</h3>
               <p className="text-gray-600 leading-relaxed">
-                Our mission is to bridge the gap, connecting learners from rural places to global cities,
-                and empowering them with expert guidance. We believe quality education shouldn't be limited
-                by location or background - it should be accessible to all in a cost effective manner.
+                At Zeal Catalyst, our mission is to bridge the gap, connecting learners from rural areas to global
+                cities, and empowering them with expert guidance. We believe quality education should be accessible
+                to all, regardless of location or background, and we're committed to making it affordable and
+                inclusive. Explore a diverse range of courses, including all school subjects, Ancient & Traditional
+                skills, Chinese cooking, Research, Self-grooming, and Artificial intelligence - all taught by
+                subject experts from around the world, tailored to help you achieve your goals.
               </p>
             </motion.div>
 

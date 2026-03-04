@@ -23,8 +23,8 @@ const timelineSteps = [
   {
     number: 2,
     icon: Search,
-    title: 'Find Your Perfect Tutor',
-    description: 'Browse expert tutors, read reviews, watch intro videos, and find your ideal match.',
+    title: 'Find Your Perfect Subject Coach',
+    description: 'Browse subject experts, read reviews, watch intro videos, and find your ideal match.',
     highlights: ['Verified credentials', 'Student reviews', 'Trial lessons'],
     color: 'bg-purple-500',
     lightColor: 'bg-purple-50',
@@ -35,7 +35,7 @@ const timelineSteps = [
     number: 3,
     icon: Calendar,
     title: 'Book Your Session',
-    description: 'Choose a convenient time slot from your tutor\'s availability and confirm instantly.',
+    description: 'Choose a convenient time slot from your mentor\'s availability and confirm instantly.',
     highlights: ['Flexible scheduling', 'Instant confirmation', 'Calendar sync'],
     color: 'bg-emerald-500',
     lightColor: 'bg-emerald-50',
@@ -64,14 +64,14 @@ const studentSteps = [
   },
   {
     icon: Search,
-    title: 'Find Your Tutor',
+    title: 'Find Your Perfect Subject matter specialist',
     description: 'Browse our verified tutors, read reviews, and find the perfect match for your learning style.',
     color: 'from-secondary-500 to-secondary-600',
   },
   {
     icon: Calendar,
     title: 'Book a Session',
-    description: 'Select a convenient time slot from your tutor\'s availability and book your lesson instantly.',
+    description: 'Select a convenient time slot from your mentor\'s availability and book your lesson instantly.',
     color: 'from-green-500 to-green-600',
   },
   {
@@ -86,7 +86,7 @@ const tutorSteps = [
   {
     icon: UserPlus,
     title: 'Create Your Profile',
-    description: 'Showcase your expertise, qualifications, and teaching experience to attract students.',
+    description: 'Showcase your expertise, qualifications, and teaching experience to attract learners.',
     color: 'from-primary-500 to-primary-600',
   },
   {
@@ -112,8 +112,8 @@ const tutorSteps = [
 const features = [
   {
     icon: Shield,
-    title: 'Verified Tutors',
-    description: 'All tutors undergo background checks and credential verification.',
+    title: 'Verified Subject professionals',
+    description: 'All experts undergo background checks and credential verification.',
   },
   {
     icon: Star,
@@ -145,8 +145,7 @@ const HowItWorks: React.FC = () => {
           >
             <h1 className="text-4xl md:text-5xl font-bold mb-6">How It Works</h1>
             <p className="text-xl text-white/80 max-w-3xl mx-auto">
-              Getting started with Zeal Catalyst is simple. Whether you're a student looking
-              to learn or a tutor ready to teach, we've made the process seamless.
+              Getting started with Zeal Catalyst is simple. Whether you're a learner looking to learn or a mentor ready to guide, we've made the process seamless.
             </p>
           </motion.div>
         </div>
@@ -302,7 +301,7 @@ const HowItWorks: React.FC = () => {
           >
             <span className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-primary-500 to-primary-600 text-white rounded-full text-sm font-semibold mb-4 shadow-lg shadow-primary-500/25">
               <Users className="w-4 h-4" />
-              For Students
+              For Learners
             </span>
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 mb-4">
               Start Learning in <span className="gradient-text">4 Easy Steps</span>
@@ -381,7 +380,7 @@ const HowItWorks: React.FC = () => {
             className="grid grid-cols-3 gap-4 mt-16 mb-8"
           >
             {[
-              { value: '10K+', label: 'Happy Students' },
+              { value: '10K+', label: 'Happy registered learners' },
               { value: '95%', label: 'Success Rate' },
               { value: '24/7', label: 'Support Available' },
             ].map((stat, index) => (
@@ -403,11 +402,11 @@ const HowItWorks: React.FC = () => {
               to="/register"
               className="inline-flex items-center gap-2 bg-gradient-to-r from-primary-600 to-primary-500 text-white font-semibold text-lg px-8 py-4 rounded-xl shadow-xl shadow-primary-500/25 hover:shadow-primary-500/40 hover:from-primary-700 hover:to-primary-600 transition-all duration-300"
             >
-              Get Started as Student
+              Get Started as learner
               <ArrowRight className="w-5 h-5" />
             </Link>
             <p className="mt-4 text-gray-500 text-sm">
-              No credit card required • Free to browse tutors
+              No credit card required • Free to browse subject coaches
             </p>
           </motion.div>
         </div>
@@ -434,10 +433,10 @@ const HowItWorks: React.FC = () => {
           >
             <span className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-secondary-500 to-secondary-600 text-white rounded-full text-sm font-semibold mb-4 shadow-lg shadow-secondary-500/25">
               <Award className="w-4 h-4" />
-              For Tutors
+              For Mentors
             </span>
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-4">
-              Start Teaching in <span className="text-transparent bg-clip-text bg-gradient-to-r from-secondary-400 to-primary-400">4 Easy Steps</span>
+              Start Mentoring in <span className="text-transparent bg-clip-text bg-gradient-to-r from-secondary-400 to-primary-400">4 Easy Steps</span>
             </h2>
             <p className="text-lg text-gray-400 max-w-2xl mx-auto">
               Share your knowledge, set your own schedule, and earn doing what you love
@@ -497,9 +496,9 @@ const HowItWorks: React.FC = () => {
             className="grid grid-cols-3 gap-4 mt-12 mb-8"
           >
             {[
-              { value: '500+', label: 'Active Tutors' },
+              { value: '500+', label: 'Active Mentors' },
               { value: '₹50K+', label: 'Avg. Monthly Earnings' },
-              { value: '4.9', label: 'Tutor Satisfaction' },
+              { value: '4.9', label: 'Mentor Satisfaction' },
             ].map((stat, index) => (
               <div key={index} className="text-center py-4 px-2 rounded-xl bg-white/5 border border-white/10">
                 <div className="text-2xl md:text-3xl font-bold text-white mb-1">{stat.value}</div>
@@ -519,7 +518,7 @@ const HowItWorks: React.FC = () => {
               to="/register?role=tutor"
               className="inline-flex items-center gap-2 bg-gradient-to-r from-secondary-500 to-secondary-600 text-white font-semibold text-lg px-8 py-4 rounded-xl shadow-xl shadow-secondary-500/25 hover:shadow-secondary-500/40 hover:from-secondary-600 hover:to-secondary-700 transition-all duration-300"
             >
-              Become a Tutor
+              Become a Mentor
               <ArrowRight className="w-5 h-5" />
             </Link>
             <p className="mt-4 text-gray-500 text-sm">
@@ -577,14 +576,14 @@ const HowItWorks: React.FC = () => {
           >
             <h2 className="text-3xl md:text-4xl font-bold mb-6">Ready to Get Started?</h2>
             <p className="text-xl text-white/80 mb-8">
-              Join thousands of students and tutors on Zeal Catalyst today
+              Join thousands of registered learners and subject experts on Zeal Catalyst today
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link to="/register" className="btn-primary bg-white text-primary-700 hover:bg-gray-100">
-                Find a Tutor
+                Find a expert
               </Link>
               <Link to="/register?role=tutor" className="btn-outline border-white text-white hover:bg-white/10">
-                Become a Tutor
+                Become a expert
               </Link>
             </div>
           </motion.div>

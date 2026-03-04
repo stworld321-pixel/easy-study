@@ -18,7 +18,7 @@ const steps = [
   {
     number: 2,
     icon: Search,
-    title: 'Find Your Perfect Tutor',
+    title: 'Find Your Perfect Subject Coach',
     description: 'Browse expert tutors, read reviews, watch intro videos, and find your ideal match.',
     highlights: ['Verified credentials', 'Student reviews', 'Trial lessons'],
     color: 'bg-purple-500',

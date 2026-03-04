@@ -30,7 +30,7 @@ const CTA: React.FC = () => {
           </h2>
 
           <p className="text-lg md:text-xl text-white/80 mb-10 max-w-2xl mx-auto">
-            Join thousands of students who are already learning with expert tutors.
+            Join thousands of students who are already learning with subject experts.
             Your first lesson is satisfaction guaranteed.
           </p>
 
@@ -46,7 +46,7 @@ const CTA: React.FC = () => {
               to="/find-tutors"
               className="inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white bg-white/10 rounded-xl hover:bg-white/20 transition-all duration-200 backdrop-blur-sm border border-white/20"
             >
-              Browse Tutors
+              Browse Experts
             </Link>
           </div>
 
