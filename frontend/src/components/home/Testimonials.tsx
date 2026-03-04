@@ -4,7 +4,7 @@ import { Star, Quote } from 'lucide-react';
 
 const testimonials = [
   {
-    name: 'Emily Thompson',
+    name: 'Kanan',
     role: 'University Student',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Emily',
     rating: 5,
@@ -18,21 +18,21 @@ const testimonials = [
     text: 'I needed to level up my Python skills for a career change. My instructor created a custom learning plan that helped me land my dream job in just 3 months.',
   },
   {
-    name: 'Sarah Martinez',
+    name: 'Vishnu',
     role: 'High School Student',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=SarahM',
     rating: 5,
     text: 'The IELTS prep mentoring was incredible. My tutor gave me strategies and practice that boosted my score from 6.0 to 8.0. Highly recommend!',
   },
   {
-    name: 'David Kim',
+    name: 'Hema Jain',
     role: 'Business Professional',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=David',
     rating: 5,
     text: "Learning Spanish for business trips became so much easier. The flexibility to schedule sessions around my work made it possible to actually stick with it.",
   },
   {
-    name: 'Lisa Anderson',
+    name: 'Madhu',
     role: 'Parent',
     avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Lisa',
     rating: 5,

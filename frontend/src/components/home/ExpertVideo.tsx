@@ -71,7 +71,7 @@ const ExpertVideo: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                Verified credentials & teaching experience
+                Verified credentials & Mentoring experience
               </div>
               <div className="flex items-center text-gray-700">
                 <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center mr-3">
@@ -79,7 +79,7 @@ const ExpertVideo: React.FC = () => {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                   </svg>
                 </div>
-                Personalized teaching methodology
+                Personalized Coaching methodology
               </div>
               <div className="flex items-center text-gray-700">
                 <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center mr-3">
