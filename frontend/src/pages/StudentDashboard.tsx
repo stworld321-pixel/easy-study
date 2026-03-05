@@ -4,24 +4,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Calendar, Clock, Video, DollarSign,
   Check, X, AlertCircle, ExternalLink, Copy, User,
-  FileText, Star, MessageSquare, Play, Download, BookOpen, ClipboardList
+  FileText, Star, MessageSquare, Download, BookOpen, ClipboardList
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { bookingsAPI, materialsAPI } from '../services/api';
 import type { AssignmentResponse, BookingResponse, MaterialResponse, RatingResponse } from '../services/api';
 import ChatInbox from '../components/ChatInbox';
-
-// Types for new features
-interface RecordedSession {
-  id: string;
-  title: string;
-  tutor_name: string;
-  subject: string;
-  duration: string;
-  recorded_at: string;
-  video_url?: string;
-  thumbnail?: string;
-}
 
 const StudentDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -29,12 +17,11 @@ const StudentDashboard: React.FC = () => {
   const [bookings, setBookings] = useState<BookingResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [mainTab, setMainTab] = useState<'sessions' | 'recordings' | 'materials' | 'feedback' | 'messages'>('sessions');
+  const [mainTab, setMainTab] = useState<'sessions' | 'materials' | 'feedback' | 'messages'>('sessions');
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
-  // New state for recordings, materials, and feedback
-  const [recordings] = useState<RecordedSession[]>([]);
+  // New state for materials and feedback
   const [materials, setMaterials] = useState<MaterialResponse[]>([]);
   const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
   const [myRatings, setMyRatings] = useState<RatingResponse[]>([]);
@@ -46,7 +33,7 @@ const StudentDashboard: React.FC = () => {
   // Handle tab query parameter from notifications
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && ['sessions', 'recordings', 'materials', 'feedback', 'messages'].includes(tabParam)) {
+    if (tabParam && ['sessions', 'materials', 'feedback', 'messages'].includes(tabParam)) {
       setMainTab(tabParam as typeof mainTab);
     }
   }, [searchParams]);
@@ -171,7 +158,6 @@ const StudentDashboard: React.FC = () => {
         <div className="flex gap-2 mb-8 bg-white p-2 rounded-2xl shadow-sm border border-gray-100 overflow-x-auto">
           {[
             { id: 'sessions', label: 'My Sessions', icon: Calendar },
-            { id: 'recordings', label: 'Recorded Sessions', icon: Play },
             { id: 'materials', label: 'Study Materials', icon: BookOpen },
             { id: 'feedback', label: 'My Ratings', icon: Star },
             { id: 'messages', label: 'Messages', icon: MessageSquare },
@@ -417,61 +403,6 @@ const StudentDashboard: React.FC = () => {
           )}
         </motion.div>
           </>
-        )}
-
-        {/* Recorded Sessions Tab */}
-        {mainTab === 'recordings' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">Recorded Sessions</h2>
-              <p className="text-gray-600">Access your past session recordings</p>
-            </div>
-
-            {recordings.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-gray-100 p-12 shadow-sm text-center">
-                <Play className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No Recordings Yet</h3>
-                <p className="text-gray-500">Your recorded sessions will appear here after completed tutoring sessions</p>
-              </div>
-            ) : (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {recordings.map(recording => (
-                  <div key={recording.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-lg transition-shadow">
-                    <div className="aspect-video bg-gradient-to-br from-primary-600 to-secondary-600 relative flex items-center justify-center">
-                      {recording.thumbnail ? (
-                        <img src={recording.thumbnail} alt={recording.title} className="w-full h-full object-cover" />
-                      ) : (
-                        <Play className="w-16 h-16 text-white/80" />
-                      )}
-                      <div className="absolute bottom-2 right-2 px-2 py-1 bg-black/70 text-white text-xs rounded">
-                        {recording.duration}
-                      </div>
-                    </div>
-                    <div className="p-4">
-                      <h4 className="font-semibold text-gray-900">{recording.title}</h4>
-                      <p className="text-sm text-gray-600 mt-1">{recording.tutor_name}</p>
-                      <div className="flex items-center justify-between mt-3">
-                        <span className="text-xs text-gray-500">
-                          {new Date(recording.recorded_at).toLocaleDateString()}
-                        </span>
-                        <span className="px-2 py-1 bg-primary-100 text-primary-700 text-xs rounded-full">
-                          {recording.subject}
-                        </span>
-                      </div>
-                      <button className="w-full mt-4 flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors">
-                        <Play className="w-4 h-4" />
-                        Watch Recording
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </motion.div>
         )}
 
         {/* Study Materials Tab */}
