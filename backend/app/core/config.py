@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -66,6 +66,19 @@ class Settings(BaseSettings):
     MINIO_SECURE: bool = False
     MINIO_BUCKET: str = "tutor-images"
     MINIO_PUBLIC_URL: Optional[str] = None  # External URL for accessing images
+
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def parse_debug_value(cls, value):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"1", "true", "yes", "on", "debug", "development", "dev"}:
+                return True
+            if normalized in {"0", "false", "no", "off", "release", "production", "prod"}:
+                return False
+        return value
 
     @property
     def cors_origins_list(self) -> list[str]:

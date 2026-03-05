@@ -13,12 +13,33 @@ from app.services.google_meet import google_meet_service
 from app.services.google_calendar_service import tutor_google_calendar_service
 from app.services.notification_service import notification_service
 from app.services.payment_service import payment_service
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+MEET_LINK_EXPIRE_GRACE_MINUTES = 15
+
+
+def _to_utc_naive(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _meeting_link_expires_at(booking: Booking) -> Optional[datetime]:
+    if not booking.meeting_link:
+        return None
+    start = _to_utc_naive(booking.scheduled_at)
+    return start + timedelta(minutes=booking.duration_minutes + MEET_LINK_EXPIRE_GRACE_MINUTES)
+
+
+def _is_meeting_link_expired(booking: Booking) -> bool:
+    expires_at = _meeting_link_expires_at(booking)
+    if not expires_at:
+        return False
+    return datetime.utcnow() > expires_at
 
 
 def _get_booking_slot_collection():
@@ -34,6 +55,10 @@ def _get_booking_slot_collection():
 
 def create_booking_response(b: Booking) -> BookingResponse:
     """Helper to create BookingResponse from Booking model"""
+    expires_at = _meeting_link_expires_at(b)
+    expired = _is_meeting_link_expired(b)
+    safe_meeting_link = None if expired else b.meeting_link
+
     return BookingResponse(
         id=str(b.id),
         student_id=b.student_id,
@@ -50,7 +75,9 @@ def create_booking_response(b: Booking) -> BookingResponse:
         currency=b.currency,
         status=b.status,
         notes=b.notes,
-        meeting_link=b.meeting_link,
+        meeting_link=safe_meeting_link,
+        meeting_link_expires_at=expires_at,
+        meeting_link_expired=expired,
         google_event_id=b.google_event_id,
         created_at=b.created_at
     )

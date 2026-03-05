@@ -35,6 +35,8 @@ class BookingResponse(BaseModel):
     status: BookingStatus
     notes: Optional[str] = None
     meeting_link: Optional[str] = None
+    meeting_link_expires_at: Optional[datetime] = None
+    meeting_link_expired: bool = False
     google_event_id: Optional[str] = None
     created_at: datetime
 

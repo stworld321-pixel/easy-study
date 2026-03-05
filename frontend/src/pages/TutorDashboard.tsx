@@ -1607,6 +1607,11 @@ const TutorDashboard: React.FC = () => {
                                 </a>
                               </div>
                             </div>
+                          ) : booking.meeting_link_expired ? (
+                            <div className="flex items-center gap-2 text-sm text-red-700">
+                              <AlertCircle className="w-4 h-4" />
+                              Meet link expired (15 minutes after session end).
+                            </div>
                           ) : editingMeetLink === booking.id ? (
                             <div className="space-y-2">
                               <div className="text-sm font-medium text-gray-700">Add Meet Link</div>

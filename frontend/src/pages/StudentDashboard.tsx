@@ -361,6 +361,16 @@ const StudentDashboard: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Expired Meet link notice */}
+                  {booking.status === 'confirmed' && !booking.meeting_link && booking.meeting_link_expired && (
+                    <div className="mt-4 p-4 bg-red-50 rounded-xl border border-red-200">
+                      <div className="flex items-center gap-2 text-sm text-red-700">
+                        <AlertCircle className="w-4 h-4" />
+                        This session link has expired for safety.
+                      </div>
+                    </div>
+                  )}
+
                   {/* Pending status notice */}
                   {booking.status === 'pending' && (
                     <div className="mt-4 p-4 bg-yellow-50 rounded-xl border border-yellow-200">
