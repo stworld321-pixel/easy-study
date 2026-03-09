@@ -82,6 +82,17 @@ export const tutorsAPI = {
     return response.data;
   },
 
+  getBySlug: async (slug: string): Promise<TutorProfile> => {
+    try {
+      const response = await api.get(`/tutors/slug/${encodeURIComponent(slug)}`);
+      return response.data;
+    } catch {
+      // Backward compatibility: if old ID URL is used, fallback to existing endpoint.
+      const fallback = await api.get(`/tutors/${encodeURIComponent(slug)}`);
+      return fallback.data;
+    }
+  },
+
   getReviews: async (tutorId: string): Promise<Review[]> => {
     const response = await api.get(`/tutors/${tutorId}/reviews`);
     return response.data;

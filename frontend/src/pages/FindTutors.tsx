@@ -11,6 +11,7 @@ import { tutorsAPI } from '../services/api';
 import BookingModal from '../components/BookingModal';
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
+import { buildTutorSlug } from '../utils/tutorSeo';
 
 const subjects = [
   'Mathematics', 'Physics', 'Chemistry', 'Biology', 'English',
@@ -193,7 +194,7 @@ const TutorCard: React.FC<{ tutor: TutorProfile; index: number; onBookTrial: (tu
               {/* Action Buttons */}
               <div className="flex flex-col gap-2 w-full lg:w-auto">
                 <Link
-                  to={`/tutors/${tutor.id}`}
+                  to={`/tutors/${buildTutorSlug(tutor)}`}
                   className="px-6 py-3 bg-gradient-to-r from-primary-600 to-primary-500 text-white font-semibold rounded-xl hover:from-primary-700 hover:to-primary-600 transition-all duration-300 shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 text-center"
                 >
                   View Profile

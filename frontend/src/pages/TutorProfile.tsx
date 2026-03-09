@@ -10,9 +10,10 @@ import { tutorsAPI } from '../services/api';
 import type { TutorProfile as TutorProfileType } from '../types';
 import BookingModal from '../components/BookingModal';
 import { useCurrency } from '../context/CurrencyContext';
+import { buildTutorMetaDescription, buildTutorSlug, ensureMetaTag, ensurePropertyMetaTag } from '../utils/tutorSeo';
 
 const TutorProfile: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
+  const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const [tutor, setTutor] = useState<TutorProfileType | null>(null);
   const [loading, setLoading] = useState(true);
@@ -22,17 +23,17 @@ const TutorProfile: React.FC = () => {
 
   useEffect(() => {
     const fetchTutor = async () => {
-      if (!id) return;
+      if (!slug) return;
       setLoading(true);
       try {
-        const data = await tutorsAPI.getById(id);
+        const data = await tutorsAPI.getBySlug(slug);
         setTutor(data);
       } catch (error) {
         console.error('Failed to fetch tutor:', error);
         // Mock data for testing
         setTutor({
-          id: id,
-          user_id: id,
+          id: slug || 'mock-id',
+          user_id: slug || 'mock-user-id',
           full_name: 'Dr. Sarah Johnson',
           avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400&h=400&fit=crop',
           headline: 'Expert Mathematics & Physics Tutor | PhD in Applied Mathematics',
@@ -66,7 +67,77 @@ const TutorProfile: React.FC = () => {
     };
 
     fetchTutor();
-  }, [id]);
+  }, [slug]);
+
+  useEffect(() => {
+    if (!tutor) return;
+
+    const subject = tutor.subjects?.[0] || 'General';
+    const city = tutor.city || 'Online';
+    const seoTitle = `${tutor.full_name} – ${subject} Tutor in ${city} | Online Lessons`;
+    const seoDescription = buildTutorMetaDescription(tutor);
+    const canonicalUrl = `https://easystudy.cloud/tutors/${buildTutorSlug(tutor)}`;
+
+    document.title = seoTitle;
+    ensureMetaTag('description', seoDescription);
+    ensurePropertyMetaTag('og:title', seoTitle);
+    ensurePropertyMetaTag('og:description', seoDescription);
+    ensurePropertyMetaTag('og:type', 'profile');
+    ensurePropertyMetaTag('og:url', canonicalUrl);
+
+    let canonical = document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+    if (!canonical) {
+      canonical = document.createElement('link');
+      canonical.rel = 'canonical';
+      document.head.appendChild(canonical);
+    }
+    canonical.href = canonicalUrl;
+
+    const schemaId = 'tutor-schema-jsonld';
+    const previous = document.getElementById(schemaId);
+    if (previous) previous.remove();
+
+    const schema = {
+      '@context': 'https://schema.org',
+      '@type': 'Person',
+      name: tutor.full_name,
+      image: tutor.avatar || undefined,
+      description: seoDescription,
+      address: {
+        '@type': 'PostalAddress',
+        addressLocality: tutor.city || 'Online',
+        addressCountry: tutor.country || 'Global',
+      },
+      knowsAbout: tutor.subjects || [],
+      hasOccupation: {
+        '@type': 'Occupation',
+        name: `${subject} Tutor`,
+      },
+      aggregateRating: {
+        '@type': 'AggregateRating',
+        ratingValue: tutor.rating || 0,
+        reviewCount: tutor.total_reviews || 0,
+      },
+      offers: {
+        '@type': 'Offer',
+        priceCurrency: tutor.currency || 'INR',
+        price: tutor.hourly_rate || 0,
+        availability: tutor.is_available ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+      },
+      url: canonicalUrl,
+    };
+
+    const script = document.createElement('script');
+    script.id = schemaId;
+    script.type = 'application/ld+json';
+    script.text = JSON.stringify(schema);
+    document.head.appendChild(script);
+
+    return () => {
+      const current = document.getElementById(schemaId);
+      if (current) current.remove();
+    };
+  }, [tutor]);
 
   if (loading) {
     return (

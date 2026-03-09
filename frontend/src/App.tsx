@@ -52,7 +52,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/find-tutors" element={<FindTutors />} />
-              <Route path="/tutors/:id" element={<TutorProfile />} />
+              <Route path="/tutors/:slug" element={<TutorProfile />} />
               <Route path="/how-it-works" element={<HowItWorks />} />
               <Route path="/about" element={<About />} />
               <Route path="/faqs" element={<FAQs />} />

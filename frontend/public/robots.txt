@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+
+Disallow: /admin/
+Disallow: /tutor/dashboard
+Disallow: /student/dashboard
+Disallow: /login
+Disallow: /register
+
+Sitemap: https://easystudy.cloud/sitemap.xml
+Sitemap: https://easystudy.cloud/sitemap-pages.xml
+Sitemap: https://easystudy.cloud/api/sitemap-tutors.xml

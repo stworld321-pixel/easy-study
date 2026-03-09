@@ -8,9 +8,44 @@ from app.models.booking import Review
 from app.schemas.tutor import TutorProfileCreate, TutorProfileUpdate, TutorProfileResponse
 from app.schemas.booking import ReviewResponse
 from app.routes.auth import get_current_user
+from app.utils.seo import build_tutor_slug
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _to_tutor_response(tutor: TutorProfile) -> TutorProfileResponse:
+    return TutorProfileResponse(
+        id=str(tutor.id),
+        user_id=tutor.user_id,
+        full_name=tutor.full_name,
+        email=tutor.email,
+        avatar=tutor.avatar,
+        headline=tutor.headline,
+        bio=tutor.bio,
+        experience_years=tutor.experience_years,
+        education=tutor.education,
+        certifications=tutor.certifications,
+        hourly_rate=tutor.hourly_rate,
+        group_hourly_rate=tutor.group_hourly_rate,
+        currency=tutor.currency,
+        languages=tutor.languages,
+        teaching_style=tutor.teaching_style,
+        subjects=tutor.subjects,
+        country=tutor.country,
+        city=tutor.city,
+        timezone=tutor.timezone,
+        offers_private=tutor.offers_private,
+        offers_group=tutor.offers_group,
+        total_students=tutor.total_students,
+        total_lessons=tutor.total_lessons,
+        rating=tutor.rating,
+        total_reviews=tutor.total_reviews,
+        is_verified=tutor.is_verified,
+        is_featured=tutor.is_featured,
+        is_available=tutor.is_available,
+        created_at=tutor.created_at
+    )
 
 @router.get("", response_model=List[TutorProfileResponse])
 async def get_tutors(
@@ -241,37 +276,28 @@ async def get_tutor(tutor_id: str):
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor not found")
 
-    return TutorProfileResponse(
-        id=str(tutor.id),
-        user_id=tutor.user_id,
-        full_name=tutor.full_name,
-        email=tutor.email,
-        avatar=tutor.avatar,
-        headline=tutor.headline,
-        bio=tutor.bio,
-        experience_years=tutor.experience_years,
-        education=tutor.education,
-        certifications=tutor.certifications,
-        hourly_rate=tutor.hourly_rate,
-        group_hourly_rate=tutor.group_hourly_rate,
-        currency=tutor.currency,
-        languages=tutor.languages,
-        teaching_style=tutor.teaching_style,
-        subjects=tutor.subjects,
-        country=tutor.country,
-        city=tutor.city,
-        timezone=tutor.timezone,
-        offers_private=tutor.offers_private,
-        offers_group=tutor.offers_group,
-        total_students=tutor.total_students,
-        total_lessons=tutor.total_lessons,
-        rating=tutor.rating,
-        total_reviews=tutor.total_reviews,
-        is_verified=tutor.is_verified,
-        is_featured=tutor.is_featured,
-        is_available=tutor.is_available,
-        created_at=tutor.created_at
-    )
+    return _to_tutor_response(tutor)
+
+
+@router.get("/slug/{tutor_slug}", response_model=TutorProfileResponse)
+async def get_tutor_by_slug(tutor_slug: str):
+    tutors = await TutorProfile.find_all().to_list()
+    exact_match: Optional[TutorProfile] = None
+    prefix_match: Optional[TutorProfile] = None
+
+    for tutor in tutors:
+        current_slug = build_tutor_slug(tutor.full_name or "", tutor.subjects or [], tutor.city)
+        if current_slug == tutor_slug:
+            exact_match = tutor
+            break
+        if tutor_slug.startswith(current_slug) and not prefix_match:
+            prefix_match = tutor
+
+    chosen = exact_match or prefix_match
+    if not chosen:
+        raise HTTPException(status_code=404, detail="Tutor not found")
+
+    return _to_tutor_response(chosen)
 
 @router.get("/{tutor_id}/reviews", response_model=List[ReviewResponse])
 async def get_tutor_reviews(tutor_id: str, skip: int = 0, limit: int = 10):

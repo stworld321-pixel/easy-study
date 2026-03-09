@@ -59,19 +59,22 @@ const Footer: React.FC = () => {
             <h3 className="text-white font-semibold text-lg mb-6">Popular Courses</h3>
             <ul className="space-y-4">
               <li>
-                <Link to="/find-tutors?subject=All school subjects" className="hover:text-white transition-colors">All school subjects</Link>
+                <Link to="/find-tutors?subject=Global cuisines" className="hover:text-white transition-colors">Global cuisines</Link>
               </li>
               <li>
-                <Link to="/find-tutors?subject=Traditional skills" className="hover:text-white transition-colors">Ancient & Traditional skills</Link>
+                <Link to="/find-tutors?subject=Ancient And traditional skills" className="hover:text-white transition-colors">Ancient And traditional skills</Link>
               </li>
               <li>
-                <Link to="/find-tutors?subject=Chinese cooking" className="hover:text-white transition-colors">Chinese cooking</Link>
+                <Link to="/find-tutors?subject=Counselling" className="hover:text-white transition-colors">Counselling</Link>
               </li>
               <li>
-                <Link to="/find-tutors?subject=Research" className="hover:text-white transition-colors">Research</Link>
+                <Link to="/find-tutors?subject=College workshop training" className="hover:text-white transition-colors">College workshop training</Link>
               </li>
               <li>
-                <Link to="/find-tutors?subject=Self grooming" className="hover:text-white transition-colors">Self-grooming</Link>
+                <Link to="/find-tutors?subject=Corporate training" className="hover:text-white transition-colors">Corporate training</Link>
+              </li>
+              <li>
+                <Link to="/find-tutors?subject=Student skill development program" className="hover:text-white transition-colors">Student skill development program</Link>
               </li>
             </ul>
           </div>
@@ -96,14 +99,10 @@ const Footer: React.FC = () => {
                 <MapPin className="w-5 h-5 text-primary-500 mt-1" />
                 <div className="flex flex-col space-y-2">
                   <span className="text-sm">
-                    <strong className="text-white">Dubai:</strong><br />
-                    203, Al Faraj Building,<br />
-                    Al Nahda 2, Dubai, UAE
+                    <strong className="text-white">Dubai</strong>
                   </span>
                   <span className="text-sm">
-                    <strong className="text-white">Chennai:</strong><br />
-                    No.5, Thiruvalluvar Nagar,<br />
-                    Chrompet, Chennai-44, India
+                    <strong className="text-white">Chennai</strong>
                   </span>
                 </div>
               </li>

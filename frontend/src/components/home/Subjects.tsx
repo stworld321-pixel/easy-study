@@ -70,14 +70,6 @@ const subjects = [
     count: 120
   },
   {
-    name: 'Chinese cooking',
-    icon: '/icons/material arts.gif',
-    emoji: '🥋',
-    color: 'from-red-500 to-orange-500',
-    bgColor: 'bg-red-50',
-    count: 85
-  },
-  {
     name: 'Research',
     icon: '/icons/research.gif',
     emoji: '🔬',
@@ -108,6 +100,53 @@ const subjects = [
     color: 'from-teal-500 to-cyan-500',
     bgColor: 'bg-teal-50',
     count: 290
+  },  {
+    name: 'Global cuisines',
+    icon: '/icons/material arts.gif',
+    emoji: 'G',
+    color: 'from-amber-500 to-orange-500',
+    bgColor: 'bg-amber-50',
+    count: 110
+  },
+  {
+    name: 'Ancient And traditional skills',
+    icon: '/icons/english-language.gif',
+    emoji: 'A',
+    color: 'from-orange-500 to-amber-500',
+    bgColor: 'bg-orange-50',
+    count: 210
+  },
+  {
+    name: 'Counselling',
+    icon: '/icons/language.gif',
+    emoji: 'C',
+    color: 'from-violet-500 to-purple-500',
+    bgColor: 'bg-violet-50',
+    count: 130
+  },
+  {
+    name: 'College workshop training',
+    icon: '/icons/design.gif',
+    emoji: 'W',
+    color: 'from-fuchsia-500 to-purple-500',
+    bgColor: 'bg-fuchsia-50',
+    count: 160
+  },
+  {
+    name: 'Corporate training',
+    icon: '/icons/data science.gif',
+    emoji: 'T',
+    color: 'from-sky-500 to-blue-500',
+    bgColor: 'bg-sky-50',
+    count: 170
+  },
+  {
+    name: 'Student skill development program',
+    icon: '/icons/computer science.gif',
+    emoji: 'S',
+    color: 'from-indigo-500 to-violet-500',
+    bgColor: 'bg-indigo-50',
+    count: 240
   },
 ];
 
@@ -163,3 +202,5 @@ const Subjects: React.FC = () => {
 };
 
 export default Subjects;
+
+

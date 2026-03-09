@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Star, MapPin, Clock, CheckCircle } from 'lucide-react';
 import type { TutorProfile } from '../../types';
 import { tutorsAPI } from '../../services/api';
+import { buildTutorSlug } from '../../utils/tutorSeo';
 
 const TutorCard: React.FC<{ tutor: TutorProfile; index: number }> = ({ tutor, index }) => (
   <motion.div
@@ -12,7 +13,7 @@ const TutorCard: React.FC<{ tutor: TutorProfile; index: number }> = ({ tutor, in
     viewport={{ once: true }}
     transition={{ duration: 0.5, delay: index * 0.1 }}
   >
-    <Link to={`/tutors/${tutor.id}`} className="block">
+    <Link to={`/tutors/${buildTutorSlug(tutor)}`} className="block">
       <div className="card p-6 h-full hover:scale-[1.02] transition-all duration-300">
         <div className="flex items-start space-x-4">
           {/* Avatar */}
