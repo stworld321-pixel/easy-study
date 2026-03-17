@@ -15,6 +15,12 @@ declare global {
   }
 }
 
+type JitsiApiInstance = {
+  addListener: (event: string, callback: () => void) => void;
+  executeCommand: (command: string, ...args: unknown[]) => void;
+  dispose: () => void;
+};
+
 const MeetingRoom: React.FC = () => {
   const { bookingId } = useParams<{ bookingId: string }>();
   const navigate = useNavigate();
@@ -24,7 +30,7 @@ const MeetingRoom: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const apiRef = useRef<{ dispose: () => void; addListener: (event: string, callback: () => void) => void } | null>(null);
+  const apiRef = useRef<JitsiApiInstance | null>(null);
 
   const normalizeDomain = (raw: string): string =>
     raw
