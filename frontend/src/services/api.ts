@@ -113,6 +113,10 @@ export const tutorsAPI = {
 export interface TimeSlot {
   start_time: string;
   end_time: string;
+  is_available?: boolean;
+  booked_count?: number;
+  capacity?: number;
+  status?: string;
 }
 
 export interface WeeklySchedule {
@@ -248,6 +252,16 @@ export interface BookingResponse {
   created_at: string;
 }
 
+export interface MeetingAccessResponse {
+  booking_id: string;
+  room_name: string;
+  domain: string;
+  meeting_url: string;
+  launch_url: string;
+  is_moderator: boolean;
+  jwt?: string;
+}
+
 // Bookings API
 export const bookingsAPI = {
   create: async (data: {
@@ -270,6 +284,16 @@ export const bookingsAPI = {
 
   getTutorBookings: async (): Promise<BookingResponse[]> => {
     const response = await api.get('/bookings/tutor/my-bookings');
+    return response.data;
+  },
+
+  getById: async (id: string): Promise<BookingResponse> => {
+    const response = await api.get(`/bookings/${id}`);
+    return response.data;
+  },
+
+  getMeetingAccess: async (id: string): Promise<MeetingAccessResponse> => {
+    const response = await api.get(`/bookings/${id}/meeting-access`);
     return response.data;
   },
 

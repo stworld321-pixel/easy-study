@@ -6,6 +6,10 @@ from app.models.availability import DayOfWeek
 class TimeSlotSchema(BaseModel):
     start_time: str  # Format: "HH:MM"
     end_time: str    # Format: "HH:MM"
+    is_available: Optional[bool] = None
+    booked_count: Optional[int] = None
+    capacity: Optional[int] = None
+    status: Optional[str] = None
 
 class WeeklyScheduleUpdate(BaseModel):
     monday: List[TimeSlotSchema] = []

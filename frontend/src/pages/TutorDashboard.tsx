@@ -450,7 +450,7 @@ const TutorDashboard: React.FC = () => {
     try {
       const updated = await bookingsAPI.confirmBooking(bookingId);
       setBookings(prev => prev.map(b => b.id === bookingId ? updated : b));
-      setMessage({ type: 'success', text: 'Booking confirmed! Meet link has been generated.' });
+      setMessage({ type: 'success', text: 'Booking confirmed! Session link has been generated.' });
       setTimeout(() => setMessage(null), 4000);
     } catch (error) {
       setMessage({ type: 'error', text: 'Failed to confirm booking' });
@@ -1580,7 +1580,7 @@ const TutorDashboard: React.FC = () => {
                             <div className="space-y-2">
                               <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
                                 <Video className="w-4 h-4 text-green-600" />
-                                Meet Link
+                                Session Link
                               </div>
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                 <input
@@ -1601,7 +1601,7 @@ const TutorDashboard: React.FC = () => {
                                   target="_blank"
                                   rel="noopener noreferrer"
                                   className="p-2 text-primary-600 hover:bg-primary-50 rounded-lg transition-colors"
-                                  title="Open Meet"
+                                  title="Open Session"
                                 >
                                   <ExternalLink className="w-4 h-4" />
                                 </a>
@@ -1610,17 +1610,17 @@ const TutorDashboard: React.FC = () => {
                           ) : booking.meeting_link_expired ? (
                             <div className="flex items-center gap-2 text-sm text-red-700">
                               <AlertCircle className="w-4 h-4" />
-                              Meet link expired (15 minutes after session end).
+                              Session link expired (15 minutes after session end).
                             </div>
                           ) : editingMeetLink === booking.id ? (
                             <div className="space-y-2">
-                              <div className="text-sm font-medium text-gray-700">Add Meet Link</div>
+                              <div className="text-sm font-medium text-gray-700">Add Session Link</div>
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                 <input
                                   type="url"
                                   value={meetLinkInput}
                                   onChange={(e) => setMeetLinkInput(e.target.value)}
-                                  placeholder="https://meet.google.com/..."
+                                  placeholder="https://easystudy.cloud/meeting/..."
                                   className="flex-1 px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
                                 />
                                 <button
@@ -2749,3 +2749,4 @@ const TutorDashboard: React.FC = () => {
 };
 
 export default TutorDashboard;
+

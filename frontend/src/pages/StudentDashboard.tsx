@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Calendar, Clock, Video, DollarSign,
@@ -14,6 +14,8 @@ import ChatInbox from '../components/ChatInbox';
 const StudentDashboard: React.FC = () => {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const feedbackPopupHandledRef = useRef(false);
   const [bookings, setBookings] = useState<BookingResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -44,6 +46,33 @@ const StudentDashboard: React.FC = () => {
     fetchAssignments();
     fetchMyRatings();
   }, []);
+
+  // Auto-open feedback popup when redirected from meeting end.
+  useEffect(() => {
+    if (feedbackPopupHandledRef.current) return;
+
+    const shouldOpenPopup = searchParams.get('feedback_popup') === '1';
+    const bookingId = searchParams.get('booking_id');
+    if (!shouldOpenPopup || !bookingId || bookings.length === 0) return;
+
+    const booking = bookings.find(b => b.id === bookingId && b.status !== 'cancelled');
+    if (!booking) return;
+
+    setMainTab('feedback');
+    setSelectedBookingForRating(booking);
+    setRatingForm({
+      tutor_id: booking.tutor_id || '',
+      tutor_name: booking.tutor_name || 'Tutor',
+      subject: booking.subject,
+      rating: 5,
+      comment: ''
+    });
+    setShowRatingModal(true);
+    feedbackPopupHandledRef.current = true;
+
+    // Clean up one-time trigger params.
+    navigate('/student/dashboard?tab=feedback', { replace: true });
+  }, [searchParams, bookings, navigate]);
 
   const fetchMaterials = async () => {
     try {
@@ -332,7 +361,7 @@ const StudentDashboard: React.FC = () => {
                     <div className="mt-4 p-4 bg-green-50 rounded-xl border border-green-200">
                       <div className="flex items-center gap-2 text-sm font-medium text-green-700 mb-2">
                         <Video className="w-4 h-4" />
-                        Your session is confirmed! Join via Google Meet:
+                        Your session is confirmed! Join in Zeal Catalyst:
                       </div>
                       <div className="flex items-center gap-2">
                         <input
@@ -355,7 +384,7 @@ const StudentDashboard: React.FC = () => {
                           className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors"
                         >
                           <ExternalLink className="w-4 h-4" />
-                          Join Meet
+                          Join Session
                         </a>
                       </div>
                     </div>

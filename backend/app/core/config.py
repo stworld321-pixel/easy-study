@@ -67,6 +67,15 @@ class Settings(BaseSettings):
     MINIO_BUCKET: str = "tutor-images"
     MINIO_PUBLIC_URL: Optional[str] = None  # External URL for accessing images
 
+    # Meeting Provider
+    MEETING_PROVIDER: str = "jitsi"  # jitsi | google_meet
+    JITSI_DOMAIN: str = "meet.jit.si"
+    JITSI_APP_ID: str = ""
+    JITSI_APP_SECRET: str = ""
+    JITSI_TOKEN_AUDIENCE: str = "jitsi"
+    JITSI_TOKEN_ISSUER: str = "zealcatalyst"
+    JITSI_TOKEN_TTL_MINUTES: int = 180
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def parse_debug_value(cls, value):

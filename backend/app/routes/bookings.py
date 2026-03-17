@@ -13,13 +13,81 @@ from app.services.google_meet import google_meet_service
 from app.services.google_calendar_service import tutor_google_calendar_service
 from app.services.notification_service import notification_service
 from app.services.payment_service import payment_service
+from app.core.config import settings
 from datetime import datetime, timedelta, timezone
+from jose import jwt as jose_jwt
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 MEET_LINK_EXPIRE_GRACE_MINUTES = 15
+
+
+def _build_jitsi_room_name(booking: Booking) -> str:
+    if booking.session_type == SessionType.GROUP:
+        slot_key = booking.scheduled_at.strftime("%Y%m%d%H%M")
+        return f"zealcatalyst-group-{booking.tutor_id}-{slot_key}-{booking.duration_minutes}".lower()
+    return f"zealcatalyst-private-{str(booking.id)}".lower()
+
+
+def _build_in_app_meeting_link(booking: Booking) -> str:
+    base = (settings.FRONTEND_URL or "").rstrip("/")
+    if not base:
+        base = "http://localhost:5173"
+    return f"{base}/meeting/{booking.id}"
+
+
+def _role_value(role: object) -> str:
+    return getattr(role, "value", role)
+
+
+async def _get_booking_access(booking: Booking, current_user: User) -> tuple[bool, bool]:
+    is_student = booking.student_id == str(current_user.id)
+
+    role_value = _role_value(current_user.role)
+    is_tutor_owner = booking.tutor_id == str(current_user.id)
+    if role_value == "tutor":
+        tutor = await TutorProfile.find_one(TutorProfile.user_id == str(current_user.id))
+        if tutor:
+            is_tutor_owner = is_tutor_owner or (str(tutor.id) == booking.tutor_id)
+
+    return is_student, is_tutor_owner
+
+
+def _build_jitsi_access_token(
+    room_name: str,
+    booking: Booking,
+    user: User,
+    is_moderator: bool,
+) -> Optional[str]:
+    secret = (settings.JITSI_APP_SECRET or "").strip()
+    if not secret:
+        return None
+
+    now = datetime.utcnow()
+    exp = now + timedelta(minutes=max(15, int(settings.JITSI_TOKEN_TTL_MINUTES or 180)))
+    payload = {
+        "aud": settings.JITSI_TOKEN_AUDIENCE,
+        "iss": settings.JITSI_TOKEN_ISSUER,
+        "sub": settings.JITSI_DOMAIN,
+        "room": room_name,
+        "nbf": int(now.timestamp()) - 30,
+        "exp": int(exp.timestamp()),
+        "booking_id": str(booking.id),
+        "session_type": booking.session_type.value if hasattr(booking.session_type, "value") else str(booking.session_type),
+        "tutor_id": booking.tutor_id,
+        "student_id": booking.student_id,
+        "context": {
+            "user": {
+                "id": str(user.id),
+                "name": user.full_name or "User",
+                "email": user.email or "",
+                "moderator": "true" if is_moderator else "false",
+            }
+        },
+    }
+    return jose_jwt.encode(payload, secret, algorithm="HS256")
 
 
 def _to_utc_naive(dt: datetime) -> datetime:
@@ -81,6 +149,16 @@ def create_booking_response(b: Booking) -> BookingResponse:
         google_event_id=b.google_event_id,
         created_at=b.created_at
     )
+
+
+class MeetingAccessResponse(BaseModel):
+    booking_id: str
+    room_name: str
+    domain: str
+    meeting_url: str
+    launch_url: str
+    is_moderator: bool
+    jwt: Optional[str] = None
 
 
 # Currency conversion rate (INR to USD)
@@ -362,6 +440,57 @@ async def get_my_bookings(current_user: User = Depends(get_current_user)):
     return [create_booking_response(b) for b in bookings]
 
 
+@router.get("/{booking_id}", response_model=BookingResponse)
+async def get_booking_by_id(booking_id: str, current_user: User = Depends(get_current_user)):
+    booking = await Booking.get(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    is_student, is_tutor_owner = await _get_booking_access(booking, current_user)
+
+    if not is_student and not is_tutor_owner:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    return create_booking_response(booking)
+
+
+@router.get("/{booking_id}/meeting-access", response_model=MeetingAccessResponse)
+async def get_meeting_access(booking_id: str, current_user: User = Depends(get_current_user)):
+    booking = await Booking.get(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    is_student, is_tutor_owner = await _get_booking_access(booking, current_user)
+    if not is_student and not is_tutor_owner:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    if booking.status != BookingStatus.CONFIRMED:
+        raise HTTPException(status_code=400, detail="Session is not confirmed.")
+    if _is_meeting_link_expired(booking):
+        raise HTTPException(status_code=410, detail="Session link expired.")
+
+    room_name = _build_jitsi_room_name(booking)
+    domain = settings.JITSI_DOMAIN
+    meeting_url = f"https://{domain}/{room_name}"
+    token = _build_jitsi_access_token(
+        room_name=room_name,
+        booking=booking,
+        user=current_user,
+        is_moderator=is_tutor_owner
+    )
+    launch_url = f"{meeting_url}?jwt={token}" if token else meeting_url
+
+    return MeetingAccessResponse(
+        booking_id=str(booking.id),
+        room_name=room_name,
+        domain=domain,
+        meeting_url=meeting_url,
+        launch_url=launch_url,
+        is_moderator=is_tutor_owner,
+        jwt=token,
+    )
+
+
 @router.put("/{booking_id}", response_model=BookingResponse)
 async def update_booking(
     booking_id: str,
@@ -407,12 +536,43 @@ async def confirm_booking(
     if booking.status == BookingStatus.CONFIRMED:
         raise HTTPException(status_code=400, detail="Booking is already confirmed")
 
-    # A valid student email is required so only invited users can join easily in Meet.
-    if not booking.student_email:
+    meeting_provider = (settings.MEETING_PROVIDER or "jitsi").strip().lower()
+
+    # A valid student email is required for Google Meet attendee-based flow.
+    if meeting_provider != "jitsi" and not booking.student_email:
         raise HTTPException(
             status_code=400,
             detail="Booking is missing student email. Please ask the student to update profile email."
         )
+
+    if meeting_provider == "jitsi":
+        # In-app meeting link; actual Jitsi room is derived deterministically on frontend.
+        booking.status = BookingStatus.CONFIRMED
+        booking.meeting_link = _build_in_app_meeting_link(booking)
+        booking.updated_at = datetime.utcnow()
+        await booking.save()
+
+        try:
+            payment = await payment_service.get_payment_by_booking(booking_id)
+            if payment:
+                await payment_service.complete_payment(str(payment.id))
+        except Exception:
+            logger.exception("Failed to complete payment for booking %s", booking_id)
+
+        try:
+            await notification_service.notify_booking_confirmed(
+                student_user_id=booking.student_id,
+                tutor_name=booking.tutor_name or current_user.full_name,
+                tutor_id=str(current_user.id),
+                subject=booking.subject,
+                booking_id=str(booking.id),
+                scheduled_at=booking.scheduled_at,
+                meeting_link=booking.meeting_link
+            )
+        except Exception:
+            logger.exception("Failed to send booking confirmation notification for booking %s", booking.id)
+
+        return create_booking_response(booking)
 
     meet_result = None
     session_type_str = "1-on-1" if booking.session_type.value == "private" else "Group"

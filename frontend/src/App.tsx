@@ -21,6 +21,8 @@ import Blog from './pages/Blog';
 import BlogPost from './pages/BlogPost';
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
+import MeetingRoom from './pages/MeetingRoom';
+import PaymentThankYou from './pages/PaymentThankYou';
 
 const ProtectedRoute = ({ children, role }: { children: ReactNode; role?: 'student' | 'tutor' | 'admin' }) => {
   const { user, isLoading } = useAuth();
@@ -75,6 +77,14 @@ function App() {
                 }
               />
               <Route
+                path="/payment/thank-you"
+                element={
+                  <ProtectedRoute role="student">
+                    <PaymentThankYou />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
                 path="/admin/dashboard"
                 element={
                   <ProtectedRoute role="admin">
@@ -86,6 +96,7 @@ function App() {
               <Route path="/blog/:slug" element={<BlogPost />} />
               <Route path="/privacy" element={<Privacy />} />
               <Route path="/terms" element={<Terms />} />
+              <Route path="/meeting/:bookingId" element={<MeetingRoom />} />
             </Routes>
           </main>
           <Footer />

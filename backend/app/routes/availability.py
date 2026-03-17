@@ -5,6 +5,8 @@ import calendar
 from app.models.user import User
 from app.models.tutor import TutorProfile
 from app.models.availability import TutorAvailability, BlockedDate
+from app.models.booking_slot import BookingSlot
+from app.models.booking import Booking, BookingStatus
 from app.schemas.availability import (
     WeeklyScheduleUpdate,
     AvailabilitySettingsUpdate,
@@ -60,6 +62,30 @@ def _normalize_time_str_safe(time_value: str, fallback: str = "00:00") -> str:
         return _normalize_time_str(time_value)
     except Exception:
         return fallback
+
+
+def _day_slot_starts(day_slots: list, session_duration: int) -> list[str]:
+    starts: list[str] = []
+    for slot in day_slots:
+        start = _parse_minutes(slot.get("start_time", "00:00"))
+        end = _parse_minutes(slot.get("end_time", "00:00"))
+        if end <= start:
+            continue
+        t = start
+        while t + session_duration <= end:
+            starts.append(f"{t // 60:02d}:{t % 60:02d}")
+            t += session_duration
+    return sorted(set(starts))
+
+
+def _slot_end(start_time: str, session_duration: int) -> str:
+    start = _parse_minutes(start_time)
+    end = start + session_duration
+    return f"{(end // 60) % 24:02d}:{end % 60:02d}"
+
+
+def _to_session_type_value(raw: object) -> str:
+    return getattr(raw, "value", str(raw))
 
 
 def _validate_internal_no_overlap(schedule_dict: dict, label: str) -> None:
@@ -424,6 +450,29 @@ async def get_tutor_public_calendar(
 
     blocked_set = {bd.date.strftime("%Y-%m-%d") for bd in blocked_dates}
 
+    # Booking-slot occupancy for this month (source of truth for capacity/full state)
+    slot_docs = await BookingSlot.find({
+        "tutor_id": tutor_id,
+        "scheduled_at": {"$gte": start_date, "$lt": end_date},
+    }).to_list()
+    slot_index = {
+        f"{slot.scheduled_at.strftime('%Y-%m-%d')}|{slot.scheduled_at.strftime('%H:%M')}": slot
+        for slot in slot_docs
+    }
+
+    # Legacy fallback for historical rows without booking_slots
+    active_bookings = await Booking.find({
+        "tutor_id": tutor_id,
+        "scheduled_at": {"$gte": start_date, "$lt": end_date},
+        "status": {"$in": [BookingStatus.PENDING.value, BookingStatus.CONFIRMED.value]},
+    }).to_list()
+    legacy_counts: dict[str, int] = {}
+    legacy_types: dict[str, set[str]] = {}
+    for b in active_bookings:
+        key = f"{b.scheduled_at.strftime('%Y-%m-%d')}|{b.scheduled_at.strftime('%H:%M')}"
+        legacy_counts[key] = legacy_counts.get(key, 0) + 1
+        legacy_types.setdefault(key, set()).add(_to_session_type_value(b.session_type))
+
     # Generate calendar days
     days = []
     num_days = calendar.monthrange(year, month)[1]
@@ -438,26 +487,85 @@ async def get_tutor_public_calendar(
         # Check if blocked or in the past
         is_blocked = date_str in blocked_set or date_obj.date() < today
 
-        # Check if has availability slots for this day
+        # Build real booking slots for this day
         session_schedule = _get_schedule_by_session_type(availability, session_type)
         day_slots = session_schedule.get(day_of_week, [])
-        normalized_day_slots = [
-            {
-                "start_time": _normalize_time_str_safe(slot.get("start_time", "00:00"), "00:00"),
-                "end_time": _normalize_time_str_safe(slot.get("end_time", "00:00"), "00:00"),
-            }
-            for slot in day_slots
-        ]
-        slots_count = len(normalized_day_slots)
-        is_available = slots_count > 0 and not is_blocked and availability.is_accepting_students
+        slot_starts = _day_slot_starts(day_slots, availability.session_duration)
+        min_notice_cutoff = datetime.now() + timedelta(hours=max(0, int(availability.min_notice_hours or 0)))
+
+        normalized_day_slots = []
+        available_count = 0
+
+        for start_time in slot_starts:
+            hour, minute = map(int, start_time.split(":"))
+            slot_dt = datetime(year, month, day, hour, minute)
+            key = f"{date_str}|{start_time}"
+            slot_doc = slot_index.get(key)
+
+            capacity = 1 if session_type == "private" else max(1, int(availability.group_session_capacity or 1))
+            booked_count = 0
+            status = "open"
+            is_slot_available = True
+
+            if slot_dt < min_notice_cutoff:
+                is_slot_available = False
+                status = "past"
+
+            if slot_doc:
+                doc_type = _to_session_type_value(slot_doc.session_type)
+                if doc_type != session_type:
+                    booked_count = max(slot_doc.booked_count, 1)
+                    capacity = max(slot_doc.capacity, 1)
+                    is_slot_available = False
+                    status = "booked_other_type"
+                else:
+                    booked_count = max(slot_doc.booked_count, 0)
+                    capacity = max(slot_doc.capacity, capacity)
+                    if booked_count >= capacity:
+                        is_slot_available = False
+                        status = "full"
+            else:
+                legacy_count = legacy_counts.get(key, 0)
+                legacy_type_set = legacy_types.get(key, set())
+                if legacy_type_set and session_type not in legacy_type_set:
+                    booked_count = legacy_count
+                    is_slot_available = False
+                    status = "booked_other_type"
+                elif legacy_count > 0:
+                    booked_count = legacy_count
+                    if session_type == "private" and legacy_count >= 1:
+                        is_slot_available = False
+                        status = "full"
+                    elif session_type == "group" and legacy_count >= capacity:
+                        is_slot_available = False
+                        status = "full"
+
+            if is_blocked or not availability.is_accepting_students:
+                is_slot_available = False
+                if status == "open":
+                    status = "blocked"
+
+            if is_slot_available:
+                available_count += 1
+
+            normalized_day_slots.append({
+                "start_time": start_time,
+                "end_time": _slot_end(start_time, availability.session_duration),
+                "is_available": is_slot_available,
+                "booked_count": booked_count,
+                "capacity": capacity,
+                "status": status,
+            })
+
+        is_available = available_count > 0 and not is_blocked and availability.is_accepting_students
 
         days.append(CalendarDayStatus(
             date=date_str,
             is_available=is_available,
             is_blocked=is_blocked,
             reason=None,  # Don't expose reasons to students
-            slots_count=slots_count if is_available else 0,
-            time_slots=normalized_day_slots if is_available else []
+            slots_count=available_count if is_available else 0,
+            time_slots=normalized_day_slots
         ))
 
     return MonthCalendarResponse(

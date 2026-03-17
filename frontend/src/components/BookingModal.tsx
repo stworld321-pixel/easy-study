@@ -69,6 +69,15 @@ interface BookingModalProps {
   onClose: () => void;
 }
 
+interface DisplaySlot {
+  time: string;
+  endTime: string;
+  isAvailable: boolean;
+  status: string;
+  bookedCount?: number;
+  capacity?: number;
+}
+
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
@@ -279,7 +288,12 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
               setMessage({ type: 'success', text: 'Payment successful! Your session has been booked. Redirecting...' });
               setTimeout(() => {
                 onClose();
-                navigate('/student/dashboard');
+                const params = new URLSearchParams({
+                  booking_id: bookingResponse.id,
+                  order_id: response.razorpay_order_id,
+                  payment_id: response.razorpay_payment_id,
+                });
+                navigate(`/payment/thank-you?${params.toString()}`);
               }, 2000);
             } else {
               await cleanupUnpaidBooking(bookingResponse.id);
@@ -345,7 +359,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
     return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   };
 
-  const getAvailableTimesForDate = (dateStr: string): string[] => {
+  const getAvailableTimesForDate = (dateStr: string): DisplaySlot[] => {
     const day = calendarData.find(d => d.date === dateStr);
     if (!day?.time_slots?.length) {
       return [];
@@ -361,19 +375,61 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
       return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
     };
 
-    const uniqueTimes = new Set<string>();
     const slotDuration = Math.max(15, calendarSessionDuration || 60);
+    const parsedDate = new Date(`${dateStr}T00:00:00`);
+    const now = new Date();
+    const minNoticeHours = 0;
+    const cutoff = new Date(now.getTime() + (minNoticeHours * 60 * 60 * 1000));
+    const slots: DisplaySlot[] = [];
+    const dedupe = new Set<string>();
 
     day.time_slots.forEach((slot) => {
       if (!slot.start_time || !slot.end_time) return;
+
+      // New API mode: backend sends one entry per real bookable slot with availability status.
+      if (typeof slot.is_available === 'boolean' || slot.status) {
+        const timeKey = slot.start_time;
+        if (dedupe.has(timeKey)) return;
+        dedupe.add(timeKey);
+
+        const startMinutes = parseTimeToMinutes(slot.start_time);
+        const slotDateTime = new Date(parsedDate);
+        slotDateTime.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
+        const isPast = slotDateTime < cutoff;
+        const isAvailable = Boolean(slot.is_available) && !isPast;
+        slots.push({
+          time: slot.start_time,
+          endTime: slot.end_time || toTimeString(startMinutes + slotDuration),
+          isAvailable,
+          status: isPast ? 'past' : (slot.status || (isAvailable ? 'open' : 'full')),
+          bookedCount: slot.booked_count,
+          capacity: slot.capacity,
+        });
+        return;
+      }
+
+      // Backward-compatible mode: schedule ranges => derive starts from interval.
       const start = parseTimeToMinutes(slot.start_time);
       const end = parseTimeToMinutes(slot.end_time);
       for (let t = start; t + slotDuration <= end; t += slotDuration) {
-        uniqueTimes.add(toTimeString(t));
+        const time = toTimeString(t);
+        if (dedupe.has(time)) continue;
+        dedupe.add(time);
+
+        const slotDateTime = new Date(parsedDate);
+        slotDateTime.setHours(Math.floor(t / 60), t % 60, 0, 0);
+        const isPast = slotDateTime < cutoff;
+
+        slots.push({
+          time,
+          endTime: toTimeString(t + slotDuration),
+          isAvailable: !isPast,
+          status: isPast ? 'past' : 'open',
+        });
       }
     });
 
-    return Array.from(uniqueTimes).sort((a, b) => a.localeCompare(b));
+    return slots.sort((a, b) => a.time.localeCompare(b.time));
   };
 
   const availableTimesForSelectedDate = selectedDate ? getAvailableTimesForDate(selectedDate) : [];
@@ -627,17 +683,27 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                 </div>
 
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                  {availableTimesForSelectedDate.map((time) => (
+                  {availableTimesForSelectedDate.map((slot) => (
                     <button
-                      key={time}
-                      onClick={() => handleTimeSelect(time)}
+                      key={slot.time}
+                      onClick={() => slot.isAvailable && handleTimeSelect(slot.time)}
+                      disabled={!slot.isAvailable}
                       className={`py-3 px-2 rounded-xl text-sm font-medium transition-all ${
-                        selectedTime === time
+                        selectedTime === slot.time
                           ? 'bg-primary-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          : slot.isAvailable
+                            ? 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            : 'bg-rose-50 text-rose-400 cursor-not-allowed'
                       }`}
                     >
-                      {time}
+                      <div className="flex flex-col items-center leading-tight">
+                        <span>{slot.time}</span>
+                        {!slot.isAvailable && (
+                          <span className="text-[10px] uppercase">
+                            {slot.status === 'full' || slot.status === 'booked_other_type' ? 'Booked' : 'Closed'}
+                          </span>
+                        )}
+                      </div>
                     </button>
                   ))}
                 </div>
