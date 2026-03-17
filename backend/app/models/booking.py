@@ -30,6 +30,7 @@ class Booking(Document):
     payment_status: str = "pending"  # pending, paid, refunded
     notes: Optional[str] = None
     meeting_link: Optional[str] = None
+    meeting_room_key: Optional[str] = None
     google_event_id: Optional[str] = None  # Google Calendar event ID
 
     # Denormalized data

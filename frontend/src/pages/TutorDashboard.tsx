@@ -96,6 +96,7 @@ const TutorDashboard: React.FC = () => {
   const [googleCalendarConnected, setGoogleCalendarConnected] = useState(false);
   const [googleCalendarEmail, setGoogleCalendarEmail] = useState<string | undefined>(undefined);
   const [googleCalendarLoading, setGoogleCalendarLoading] = useState(false);
+  const [jitsiTestLoading, setJitsiTestLoading] = useState(false);
 
   // Bookings state
   const [bookings, setBookings] = useState<BookingResponse[]>([]);
@@ -195,6 +196,22 @@ const TutorDashboard: React.FC = () => {
       setTimeout(() => setMessage(null), 3000);
     } finally {
       setGoogleCalendarLoading(false);
+    }
+  };
+
+  const handleStartJitsiTestMeeting = async () => {
+    setJitsiTestLoading(true);
+    try {
+      const access = await bookingsAPI.getJitsiTestAccess();
+      window.open(access.launch_url, '_blank', 'noopener,noreferrer');
+      setMessage({ type: 'success', text: 'Jitsi test meeting opened in a new tab.' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setMessage({ type: 'error', text: err.response?.data?.detail || 'Failed to open Jitsi test meeting.' });
+      setTimeout(() => setMessage(null), 3000);
+    } finally {
+      setJitsiTestLoading(false);
     }
   };
 
@@ -1400,6 +1417,28 @@ const TutorDashboard: React.FC = () => {
                     {googleCalendarLoading ? 'Connecting...' : 'Connect Google Calendar'}
                   </button>
                 )}
+              </div>
+
+              {/* Jitsi Setup */}
+              <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+                <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+                  <Video className="w-5 h-5 text-primary-600" />
+                  Jitsi Meeting Setup
+                </h3>
+                <p className="text-sm text-gray-600 mb-4">
+                  Test your camera, microphone, and moderator access before live student sessions.
+                </p>
+
+                <button
+                  onClick={handleStartJitsiTestMeeting}
+                  disabled={jitsiTestLoading}
+                  className="w-full py-3 bg-primary-600 text-white font-semibold rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50"
+                >
+                  {jitsiTestLoading ? 'Opening Test Room...' : 'Start Jitsi Test Meeting'}
+                </button>
+                <p className="text-xs text-gray-500 mt-2">
+                  Opens a private test room in a new tab.
+                </p>
               </div>
 
               {/* Block Date Form */}

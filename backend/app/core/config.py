@@ -75,6 +75,7 @@ class Settings(BaseSettings):
     JITSI_TOKEN_AUDIENCE: str = "jitsi"
     JITSI_TOKEN_ISSUER: str = "zealcatalyst"
     JITSI_TOKEN_TTL_MINUTES: int = 180
+    JITSI_REQUIRE_JWT: bool = False
 
     @field_validator("DEBUG", mode="before")
     @classmethod

@@ -15,6 +15,7 @@ from app.services.notification_service import notification_service
 from app.services.payment_service import payment_service
 from app.core.config import settings
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 from jose import jwt as jose_jwt
 from pymongo import ReturnDocument
 from pymongo.errors import DuplicateKeyError
@@ -25,6 +26,8 @@ MEET_LINK_EXPIRE_GRACE_MINUTES = 15
 
 
 def _build_jitsi_room_name(booking: Booking) -> str:
+    if booking.meeting_room_key:
+        return booking.meeting_room_key.lower()
     if booking.session_type == SessionType.GROUP:
         slot_key = booking.scheduled_at.strftime("%Y%m%d%H%M")
         return f"zealcatalyst-group-{booking.tutor_id}-{slot_key}-{booking.duration_minutes}".lower()
@@ -144,6 +147,7 @@ def create_booking_response(b: Booking) -> BookingResponse:
         status=b.status,
         notes=b.notes,
         meeting_link=safe_meeting_link,
+        meeting_room_key=b.meeting_room_key,
         meeting_link_expires_at=expires_at,
         meeting_link_expired=expired,
         google_event_id=b.google_event_id,
@@ -151,8 +155,48 @@ def create_booking_response(b: Booking) -> BookingResponse:
     )
 
 
+async def _ensure_meeting_room_key(booking: Booking) -> str:
+    """
+    Ensure booking has a stable, unguessable Jitsi room key.
+    - Private: unique random room per booking.
+    - Group: shared random room across same tutor+timeslot.
+    """
+    if booking.meeting_room_key:
+        return booking.meeting_room_key
+
+    if booking.session_type == SessionType.GROUP:
+        sibling = await Booking.find_one({
+            "_id": {"$ne": booking.id},
+            "tutor_id": booking.tutor_id,
+            "session_type": SessionType.GROUP.value,
+            "scheduled_at": booking.scheduled_at,
+            "duration_minutes": booking.duration_minutes,
+            "status": BookingStatus.CONFIRMED.value,
+            "meeting_room_key": {"$ne": None},
+        })
+        if sibling and sibling.meeting_room_key:
+            booking.meeting_room_key = sibling.meeting_room_key
+        else:
+            booking.meeting_room_key = f"zc-g-{uuid4().hex}"
+    else:
+        booking.meeting_room_key = f"zc-p-{uuid4().hex}"
+
+    booking.updated_at = datetime.utcnow()
+    await booking.save()
+    return booking.meeting_room_key
+
+
 class MeetingAccessResponse(BaseModel):
     booking_id: str
+    room_name: str
+    domain: str
+    meeting_url: str
+    launch_url: str
+    is_moderator: bool
+    jwt: Optional[str] = None
+
+
+class JitsiTestAccessResponse(BaseModel):
     room_name: str
     domain: str
     meeting_url: str
@@ -454,6 +498,53 @@ async def get_booking_by_id(booking_id: str, current_user: User = Depends(get_cu
     return create_booking_response(booking)
 
 
+@router.get("/jitsi/test-access", response_model=JitsiTestAccessResponse)
+async def get_jitsi_test_access(current_user: User = Depends(get_current_user)):
+    """
+    Generate a tutor-only Jitsi test room access.
+    This helps tutors validate audio/video and moderator behavior before real sessions.
+    """
+    tutor = await TutorProfile.find_one(TutorProfile.user_id == str(current_user.id))
+    if not tutor:
+        raise HTTPException(status_code=403, detail="Only tutors can use Jitsi test access.")
+
+    room_name = f"zealcatalyst-test-{str(tutor.id)}-{uuid4().hex[:8]}".lower()
+    domain = settings.JITSI_DOMAIN
+    meeting_url = f"https://{domain}/{room_name}"
+
+    token = None
+    if (settings.JITSI_APP_SECRET or "").strip():
+        now = datetime.utcnow()
+        exp = now + timedelta(minutes=max(15, int(settings.JITSI_TOKEN_TTL_MINUTES or 180)))
+        payload = {
+            "aud": settings.JITSI_TOKEN_AUDIENCE,
+            "iss": settings.JITSI_TOKEN_ISSUER,
+            "sub": settings.JITSI_DOMAIN,
+            "room": room_name,
+            "nbf": int(now.timestamp()) - 30,
+            "exp": int(exp.timestamp()),
+            "context": {
+                "user": {
+                    "id": str(current_user.id),
+                    "name": current_user.full_name or "Tutor",
+                    "email": current_user.email or "",
+                    "moderator": "true",
+                }
+            },
+        }
+        token = jose_jwt.encode(payload, settings.JITSI_APP_SECRET, algorithm="HS256")
+
+    launch_url = f"{meeting_url}?jwt={token}" if token else meeting_url
+    return JitsiTestAccessResponse(
+        room_name=room_name,
+        domain=domain,
+        meeting_url=meeting_url,
+        launch_url=launch_url,
+        is_moderator=True,
+        jwt=token,
+    )
+
+
 @router.get("/{booking_id}/meeting-access", response_model=MeetingAccessResponse)
 async def get_meeting_access(booking_id: str, current_user: User = Depends(get_current_user)):
     booking = await Booking.get(booking_id)
@@ -469,7 +560,14 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
     if _is_meeting_link_expired(booking):
         raise HTTPException(status_code=410, detail="Session link expired.")
 
-    room_name = _build_jitsi_room_name(booking)
+    # Security mode: require JWT token auth to prevent anonymous joins with shared links.
+    if settings.JITSI_REQUIRE_JWT and not (settings.JITSI_APP_SECRET or "").strip():
+        raise HTTPException(
+            status_code=503,
+            detail="Secure meeting access is enabled but JITSI_APP_SECRET is not configured."
+        )
+
+    room_name = await _ensure_meeting_room_key(booking)
     domain = settings.JITSI_DOMAIN
     meeting_url = f"https://{domain}/{room_name}"
     token = _build_jitsi_access_token(
@@ -548,6 +646,7 @@ async def confirm_booking(
     if meeting_provider == "jitsi":
         # In-app meeting link; actual Jitsi room is derived deterministically on frontend.
         booking.status = BookingStatus.CONFIRMED
+        await _ensure_meeting_room_key(booking)
         booking.meeting_link = _build_in_app_meeting_link(booking)
         booking.updated_at = datetime.utcnow()
         await booking.save()
@@ -635,6 +734,8 @@ async def confirm_booking(
     if meet_result:
         booking.meeting_link = booking.meeting_link or meet_result.get('meet_link')
         booking.google_event_id = booking.google_event_id or meet_result.get('event_id')
+        if meeting_provider == "jitsi":
+            await _ensure_meeting_room_key(booking)
     booking.updated_at = datetime.utcnow()
 
     await booking.save()

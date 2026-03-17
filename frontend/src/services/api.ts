@@ -262,6 +262,15 @@ export interface MeetingAccessResponse {
   jwt?: string;
 }
 
+export interface JitsiTestAccessResponse {
+  room_name: string;
+  domain: string;
+  meeting_url: string;
+  launch_url: string;
+  is_moderator: boolean;
+  jwt?: string;
+}
+
 // Bookings API
 export const bookingsAPI = {
   create: async (data: {
@@ -294,6 +303,11 @@ export const bookingsAPI = {
 
   getMeetingAccess: async (id: string): Promise<MeetingAccessResponse> => {
     const response = await api.get(`/bookings/${id}/meeting-access`);
+    return response.data;
+  },
+
+  getJitsiTestAccess: async (): Promise<JitsiTestAccessResponse> => {
+    const response = await api.get('/bookings/jitsi/test-access');
     return response.data;
   },
 
