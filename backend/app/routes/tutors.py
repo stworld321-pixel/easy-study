@@ -49,8 +49,10 @@ def _to_tutor_response(tutor: TutorProfile) -> TutorProfileResponse:
 
 
 async def _is_public_tutor_visible(tutor: TutorProfile) -> bool:
-    """Public listing guard: only active, verified tutors with active tutor user account."""
-    if not tutor or not tutor.is_available or not tutor.is_verified:
+    """Public listing guard: active tutors with active tutor user account.
+    Unverified tutors are visible; UI shows verified badge only when is_verified=True.
+    """
+    if not tutor or not tutor.is_available:
         return False
     tutor_user = await User.get(tutor.user_id) if tutor.user_id else None
     if not tutor_user:
@@ -74,7 +76,6 @@ async def get_tutors(
         # Public tutors listing only returns active + verified tutors.
         query = {
             "is_available": True,
-            "is_verified": True,
         }
 
         if subject:
