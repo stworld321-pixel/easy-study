@@ -281,7 +281,11 @@ const FindTutors: React.FC = () => {
         const data = await tutorsAPI.getAll(params);
         setTutors(Array.isArray(data) ? data : []);
       } catch {
-        // Mock data
+        // Use mock tutors only in local development fallback.
+        if (!import.meta.env.DEV) {
+          setTutors([]);
+          return;
+        }
         setTutors([
           {
             id: '1',

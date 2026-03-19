@@ -47,6 +47,17 @@ def _to_tutor_response(tutor: TutorProfile) -> TutorProfileResponse:
         created_at=tutor.created_at
     )
 
+
+async def _is_public_tutor_visible(tutor: TutorProfile) -> bool:
+    """Public listing guard: only active, verified tutors with active tutor user account."""
+    if not tutor or not tutor.is_available or not tutor.is_verified:
+        return False
+    tutor_user = await User.get(tutor.user_id) if tutor.user_id else None
+    if not tutor_user:
+        return False
+    role_value = tutor_user.role.value if hasattr(tutor_user.role, "value") else tutor_user.role
+    return bool(tutor_user.is_active and role_value == UserRole.TUTOR.value)
+
 @router.get("", response_model=List[TutorProfileResponse])
 async def get_tutors(
     subject: Optional[str] = None,
@@ -60,8 +71,11 @@ async def get_tutors(
     limit: int = 20
 ):
     try:
-        # Don't filter by is_available to show all tutors
-        query = {}
+        # Public tutors listing only returns active + verified tutors.
+        query = {
+            "is_available": True,
+            "is_verified": True,
+        }
 
         if subject:
             query["subjects"] = {"$in": [subject]}
@@ -94,6 +108,8 @@ async def get_tutors(
         results: List[TutorProfileResponse] = []
         for t in tutors:
             try:
+                if not await _is_public_tutor_visible(t):
+                    continue
                 results.append(
                     TutorProfileResponse(
                         id=str(t.id),
@@ -138,43 +154,14 @@ async def get_tutors(
 @router.get("/featured", response_model=List[TutorProfileResponse])
 async def get_featured_tutors(limit: int = 6):
     tutors = await TutorProfile.find(
-        {"is_featured": True, "is_available": True}
+        {"is_featured": True, "is_available": True, "is_verified": True}
     ).sort("-rating").limit(limit).to_list()
 
-    return [
-        TutorProfileResponse(
-            id=str(t.id),
-            user_id=t.user_id,
-            full_name=t.full_name,
-            email=t.email,
-            avatar=t.avatar,
-            headline=t.headline,
-            bio=t.bio,
-            experience_years=t.experience_years,
-            education=t.education,
-            certifications=t.certifications,
-            hourly_rate=t.hourly_rate,
-            group_hourly_rate=t.group_hourly_rate,
-            currency=t.currency,
-            languages=t.languages,
-            teaching_style=t.teaching_style,
-            subjects=t.subjects,
-            country=t.country,
-            city=t.city,
-            timezone=t.timezone,
-            offers_private=t.offers_private,
-            offers_group=t.offers_group,
-            total_students=t.total_students,
-            total_lessons=t.total_lessons,
-            rating=t.rating,
-            total_reviews=t.total_reviews,
-            is_verified=t.is_verified,
-            is_featured=t.is_featured,
-            is_available=t.is_available,
-            created_at=t.created_at
-        )
-        for t in tutors
-    ]
+    results: List[TutorProfileResponse] = []
+    for t in tutors:
+        if await _is_public_tutor_visible(t):
+            results.append(_to_tutor_response(t))
+    return results
 
 # NOTE: These profile routes MUST come BEFORE /{tutor_id} route to avoid conflicts
 @router.get("/profile/me", response_model=TutorProfileResponse)
@@ -275,6 +262,8 @@ async def get_tutor(tutor_id: str):
     tutor = await TutorProfile.get(tutor_id)
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor not found")
+    if not await _is_public_tutor_visible(tutor):
+        raise HTTPException(status_code=404, detail="Tutor not found")
 
     return _to_tutor_response(tutor)
 
@@ -295,6 +284,8 @@ async def get_tutor_by_slug(tutor_slug: str):
 
     chosen = exact_match or prefix_match
     if not chosen:
+        raise HTTPException(status_code=404, detail="Tutor not found")
+    if not await _is_public_tutor_visible(chosen):
         raise HTTPException(status_code=404, detail="Tutor not found")
 
     return _to_tutor_response(chosen)

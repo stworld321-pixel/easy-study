@@ -221,6 +221,15 @@ async def update_user(user_id: str, data: UserUpdate, admin: User = Depends(get_
     user.updated_at = datetime.utcnow()
     await user.save()
 
+    # Keep tutor availability in sync with user active status.
+    role_value = user.role.value if hasattr(user.role, "value") else user.role
+    if data.is_active is not None and role_value == "tutor":
+        tutor_profile = await TutorProfile.find_one(TutorProfile.user_id == str(user.id))
+        if tutor_profile:
+            tutor_profile.is_available = data.is_active
+            tutor_profile.updated_at = datetime.utcnow()
+            await tutor_profile.save()
+
     return UserResponse(
         id=str(user.id),
         email=user.email,
@@ -243,6 +252,14 @@ async def delete_user(user_id: str, admin: User = Depends(get_admin_user)):
     # Don't allow deleting yourself
     if str(user.id) == str(admin.id):
         raise HTTPException(status_code=400, detail="Cannot delete yourself")
+
+    role_value = user.role.value if hasattr(user.role, "value") else user.role
+
+    # Cascade tutor profile deletion for tutor accounts.
+    if role_value == "tutor":
+        tutor_profile = await TutorProfile.find_one(TutorProfile.user_id == str(user.id))
+        if tutor_profile:
+            await tutor_profile.delete()
 
     await user.delete()
     return {"message": "User deleted successfully"}
@@ -336,6 +353,12 @@ async def suspend_tutor(tutor_id: str, admin: User = Depends(get_admin_user)):
     tutor.updated_at = datetime.utcnow()
     await tutor.save()
 
+    tutor_user = await User.get(tutor.user_id) if tutor.user_id else None
+    if tutor_user:
+        tutor_user.is_active = False
+        tutor_user.updated_at = datetime.utcnow()
+        await tutor_user.save()
+
     # Send notification to tutor
     try:
         await notification_service.notify_tutor_suspended(tutor_user_id=tutor.user_id)
@@ -355,6 +378,12 @@ async def activate_tutor(tutor_id: str, admin: User = Depends(get_admin_user)):
     tutor.is_available = True
     tutor.updated_at = datetime.utcnow()
     await tutor.save()
+
+    tutor_user = await User.get(tutor.user_id) if tutor.user_id else None
+    if tutor_user:
+        tutor_user.is_active = True
+        tutor_user.updated_at = datetime.utcnow()
+        await tutor_user.save()
 
     return {"message": "Tutor activated successfully"}
 
