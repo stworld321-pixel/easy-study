@@ -36,7 +36,7 @@ const team = [
   {
     name: 'Saarunya Murali',
     role: 'Director',
-    image: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Saarunya&backgroundColor=b6e3f4',
+    image: '/team/saarunya.png',
     bio: 'As the Director, Saarunya Murali brings a wealth of expertise in education, training, and people management. With over 6 years of industrial experience, she has guided numerous student projects as a skilled HR researcher, subject matter expert, and analyst. A former educator and public speaker, she has a proven track record of enhancing personality development and has conducted sessions on The Art of Parenting, focusing on holistic child development and parental growth. Her leadership extends to overseeing office management, driving operational excellence and strategic growth.',
     featured: true,
   },
