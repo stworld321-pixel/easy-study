@@ -147,9 +147,11 @@ def build_certificate_pdf(
 
     # Signature block (left-aligned as requested, with short dash line)
     last_body_line_y = text_y - ((max(len(lines), 1) - 1) * 22)
-    sig_line_y = min(last_body_line_y - 32, 132)  # keep lower than body and inside page
-    sig_name_y = sig_line_y - 26
-    sig_role_y = sig_name_y - 22
+    sig_line_y = min(last_body_line_y - 30, 140)  # slightly higher block
+    # Signature image above dash; name/role below dash.
+    sig_image_y = sig_line_y + 4
+    sig_name_y = sig_line_y - 24
+    sig_role_y = sig_name_y - 20
 
     c.setStrokeColor(colors.HexColor("#444444"))
     c.setLineWidth(1)
@@ -172,9 +174,9 @@ def build_certificate_pdf(
             c.drawImage(
                 signature_img,
                 sig_left + 8,
-                sig_name_y - 6,
+                sig_image_y,
                 width=160,
-                height=36,
+                height=30,
                 preserveAspectRatio=True,
                 mask="auto",
                 anchor="sw",
@@ -188,7 +190,7 @@ def build_certificate_pdf(
     if not signature_drawn:
         c.drawString(sig_left, sig_name_y, tutor_name.upper())
     else:
-        c.drawString(sig_left, sig_name_y - 14, tutor_name.upper())
+        c.drawString(sig_left, sig_name_y, tutor_name.upper())
     c.setFont("Helvetica", 13)
     c.setFillColor(text_muted)
     c.drawString(sig_left, sig_role_y, "Session Tutor")
