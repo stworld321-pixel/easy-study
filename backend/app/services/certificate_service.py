@@ -1,6 +1,5 @@
 from io import BytesIO
 from datetime import datetime
-from urllib.request import urlopen
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
@@ -16,6 +15,7 @@ def build_certificate_pdf(
     certificate_number: str,
     session_name: str | None = None,
     tutor_signature_url: str | None = None,
+    tutor_signature_bytes: bytes | None = None,
 ) -> bytes:
     """
     Build a certificate PDF and return bytes.
@@ -148,19 +148,28 @@ def build_certificate_pdf(
 
     c.setStrokeColor(colors.HexColor("#444444"))
     c.setLineWidth(1)
-    c.line(300, sig_line_y, 540, sig_line_y)
+    sig_left = center_x - 170
+    sig_right = center_x + 170
+    c.line(sig_left, sig_line_y, sig_right, sig_line_y)
     signature_drawn = False
-    if tutor_signature_url:
+    signature_raw = tutor_signature_bytes
+    if not signature_raw and tutor_signature_url:
         try:
+            from urllib.request import urlopen
             with urlopen(tutor_signature_url, timeout=5) as response:
-                signature_bytes = response.read()
-            signature_img = ImageReader(BytesIO(signature_bytes))
+                signature_raw = response.read()
+        except Exception:
+            signature_raw = None
+
+    if signature_raw:
+        try:
+            signature_img = ImageReader(BytesIO(signature_raw))
             c.drawImage(
                 signature_img,
-                318,
-                sig_name_y - 2,
-                width=210,
-                height=42,
+                center_x - 110,
+                sig_name_y - 6,
+                width=220,
+                height=44,
                 preserveAspectRatio=True,
                 mask="auto",
                 anchor="sw",
@@ -172,12 +181,12 @@ def build_certificate_pdf(
     c.setFillColor(text_dark)
     c.setFont("Helvetica-Bold", 16)
     if not signature_drawn:
-        c.drawString(320, sig_name_y, tutor_name.upper())
+        c.drawCentredString(center_x, sig_name_y, tutor_name.upper())
     else:
-        c.drawCentredString((300 + 540) / 2, sig_name_y - 14, tutor_name.upper())
+        c.drawCentredString(center_x, sig_name_y - 14, tutor_name.upper())
     c.setFont("Helvetica", 13)
     c.setFillColor(text_muted)
-    c.drawString(300, sig_role_y, "Session Tutor")
+    c.drawCentredString(center_x, sig_role_y, "Session Tutor")
 
     # Brand block
     c.setFillColor(colors.HexColor("#6a7bff"))

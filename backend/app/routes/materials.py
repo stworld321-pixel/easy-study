@@ -19,6 +19,15 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+def _load_signature_bytes(signature_url: Optional[str]) -> Optional[bytes]:
+    if not signature_url:
+        return None
+    try:
+        return minio_service.get_file_bytes(signature_url)
+    except Exception:
+        return None
+
+
 # ============== SCHEMAS ==============
 
 class MaterialCreate(BaseModel):
@@ -812,11 +821,13 @@ async def create_rating(
                 session_date = booking.scheduled_at if booking else (data.session_date or datetime.utcnow())
                 certificate_number = f"ZC-{session_date.strftime('%Y%m%d')}-{str(current_user.id)[-6:].upper()}"
                 tutor_signature_url = None
+                tutor_signature_bytes = None
                 if booking and booking.tutor_id:
                     from app.models.tutor import TutorProfile
                     tutor_profile = await TutorProfile.get(booking.tutor_id)
                     if tutor_profile:
                         tutor_signature_url = tutor_profile.signature_image_url
+                        tutor_signature_bytes = _load_signature_bytes(tutor_signature_url)
                 pdf_bytes = build_certificate_pdf(
                     student_name=current_user.full_name,
                     tutor_name=data.tutor_name,
@@ -825,6 +836,7 @@ async def create_rating(
                     certificate_number=certificate_number,
                     session_name=(booking.session_name if booking else None),
                     tutor_signature_url=tutor_signature_url,
+                    tutor_signature_bytes=tutor_signature_bytes,
                 )
                 file_name = f"completion-certificate-{data.booking_id}.pdf"
                 upload_result = minio_service.upload_bytes(
@@ -1004,11 +1016,13 @@ async def regenerate_certificate(certificate_id: str, current_user: User = Depen
 
     try:
         tutor_signature_url = None
+        tutor_signature_bytes = None
         if certificate.tutor_id:
             from app.models.tutor import TutorProfile
             tutor_profile = await TutorProfile.get(certificate.tutor_id)
             if tutor_profile:
                 tutor_signature_url = tutor_profile.signature_image_url
+                tutor_signature_bytes = _load_signature_bytes(tutor_signature_url)
         pdf_bytes = build_certificate_pdf(
             student_name=certificate.student_name,
             tutor_name=certificate.tutor_name,
@@ -1017,6 +1031,7 @@ async def regenerate_certificate(certificate_id: str, current_user: User = Depen
             certificate_number=certificate.certificate_number,
             session_name=certificate.session_name,
             tutor_signature_url=tutor_signature_url,
+            tutor_signature_bytes=tutor_signature_bytes,
         )
 
         file_name = f"completion-certificate-{certificate.booking_id}-v2.pdf"
@@ -1089,6 +1104,7 @@ async def preview_certificate_for_tutor(
         certificate_number=certificate_number,
         session_name=safe_session_name,
         tutor_signature_url=tutor_profile.signature_image_url,
+        tutor_signature_bytes=_load_signature_bytes(tutor_profile.signature_image_url),
     )
 
     return Response(

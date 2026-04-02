@@ -346,6 +346,38 @@ class MinIOService:
             return self.delete_image(object_name)
         return False
 
+    def get_file_bytes(self, url: str) -> Optional[bytes]:
+        """
+        Read object bytes from MinIO/local fallback by public URL.
+        Returns None if not found/unreadable.
+        """
+        object_name = self.extract_object_name_from_url(url)
+        if not object_name:
+            return None
+
+        self._ensure_initialized()
+
+        if not self.client:
+            try:
+                path = self.local_media_root / object_name
+                if path.exists():
+                    return path.read_bytes()
+                return None
+            except Exception as e:
+                print(f"Error reading local fallback file: {e}")
+                return None
+
+        try:
+            response = self.client.get_object(self.bucket, object_name)
+            try:
+                return response.read()
+            finally:
+                response.close()
+                response.release_conn()
+        except Exception as e:
+            print(f"Error fetching object bytes: {e}")
+            return None
+
 
 # Singleton instance
 minio_service = MinIOService()
