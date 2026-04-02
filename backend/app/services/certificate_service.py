@@ -45,6 +45,12 @@ def build_certificate_pdf(
     c.setLineWidth(2)
     c.rect(30, 30, page_width - 60, page_height - 60, stroke=1, fill=0)
 
+    # Content frame (everything is aligned relative to this area)
+    content_left = 250
+    content_right = page_width - 90
+    center_x = (content_left + content_right) / 2
+    content_width = content_right - content_left
+
     # Left decorative strip
     c.setFillColor(blue_dark)
     c.rect(30, 30, 78, page_height - 60, stroke=0, fill=1)
@@ -86,14 +92,13 @@ def build_certificate_pdf(
     # Title
     c.setFillColor(text_dark)
     c.setFont("Times-Bold", 48)
-    c.drawCentredString(page_width / 2 + 28, page_height - 118, "CERTIFICATE")
+    c.drawCentredString(center_x, page_height - 118, "CERTIFICATE")
 
     c.setFillColor(text_dark)
     c.setFont("Helvetica-Oblique", 24)
-    c.drawCentredString(page_width / 2 + 28, page_height - 156, "OF APPRECIATION")
+    c.drawCentredString(center_x, page_height - 156, "OF APPRECIATION")
 
     # Subject row
-    center_x = page_width / 2 + 28
     c.setFillColor(text_dark)
     c.setFont("Helvetica-Bold", 12)
     title_text = (session_name or subject or "").strip() or "SESSION COURSE"
@@ -112,7 +117,7 @@ def build_certificate_pdf(
     # Separator line
     c.setStrokeColor(gold)
     c.setLineWidth(2)
-    c.line(250, page_height - 322, page_width - 90, page_height - 322)
+    c.line(content_left, page_height - 322, content_right, page_height - 322)
 
     # Main description
     date_text = session_date.strftime("%B %d, %Y")
@@ -122,7 +127,7 @@ def build_certificate_pdf(
     )
     c.setFillColor(text_muted)
     c.setFont("Helvetica", 16)
-    max_width = page_width - 420
+    max_width = content_width - 20
     words = body_text.split()
     lines = []
     line = ""
@@ -140,7 +145,7 @@ def build_certificate_pdf(
     for idx, text_line in enumerate(lines):
         c.drawCentredString(center_x, text_y - (idx * 22), text_line)
 
-    # Signature block (placed below body with safe gap to prevent overlap)
+    # Signature block (left-aligned as requested, with short dash line)
     last_body_line_y = text_y - ((max(len(lines), 1) - 1) * 22)
     sig_line_y = min(last_body_line_y - 32, 132)  # keep lower than body and inside page
     sig_name_y = sig_line_y - 26
@@ -148,8 +153,8 @@ def build_certificate_pdf(
 
     c.setStrokeColor(colors.HexColor("#444444"))
     c.setLineWidth(1)
-    sig_left = center_x - 170
-    sig_right = center_x + 170
+    sig_left = content_left + 70
+    sig_right = sig_left + 110
     c.line(sig_left, sig_line_y, sig_right, sig_line_y)
     signature_drawn = False
     signature_raw = tutor_signature_bytes
@@ -166,10 +171,10 @@ def build_certificate_pdf(
             signature_img = ImageReader(BytesIO(signature_raw))
             c.drawImage(
                 signature_img,
-                center_x - 110,
+                sig_left + 8,
                 sig_name_y - 6,
-                width=220,
-                height=44,
+                width=160,
+                height=36,
                 preserveAspectRatio=True,
                 mask="auto",
                 anchor="sw",
@@ -181,12 +186,12 @@ def build_certificate_pdf(
     c.setFillColor(text_dark)
     c.setFont("Helvetica-Bold", 16)
     if not signature_drawn:
-        c.drawCentredString(center_x, sig_name_y, tutor_name.upper())
+        c.drawString(sig_left, sig_name_y, tutor_name.upper())
     else:
-        c.drawCentredString(center_x, sig_name_y - 14, tutor_name.upper())
+        c.drawString(sig_left, sig_name_y - 14, tutor_name.upper())
     c.setFont("Helvetica", 13)
     c.setFillColor(text_muted)
-    c.drawCentredString(center_x, sig_role_y, "Session Tutor")
+    c.drawString(sig_left, sig_role_y, "Session Tutor")
 
     # Brand block
     c.setFillColor(colors.HexColor("#6a7bff"))
@@ -201,7 +206,7 @@ def build_certificate_pdf(
     # Footer
     c.setFillColor(colors.HexColor("#4b5563"))
     c.setFont("Helvetica", 11)
-    c.drawString(250, 58, f"Certificate No: {certificate_number}")
+    c.drawString(content_left, 58, f"Certificate No: {certificate_number}")
     c.drawRightString(page_width - 88, 58, f"Issued On: {datetime.utcnow().strftime('%d %b %Y')}")
 
     c.showPage()
