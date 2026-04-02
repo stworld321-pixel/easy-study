@@ -125,6 +125,13 @@ const TutorDashboard: React.FC = () => {
   const [materialFile, setMaterialFile] = useState<File | null>(null);
   const [materialLoading, setMaterialLoading] = useState(false);
   const [signatureUploading, setSignatureUploading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [certificatePreviewForm, setCertificatePreviewForm] = useState({
+    student_name: 'STUDENT NAME',
+    subject: 'GENERAL SESSION',
+    session_name: '',
+    session_date: new Date().toISOString().slice(0, 10),
+  });
   const [bookedStudents, setBookedStudents] = useState<BookedStudent[]>([]);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [shareWithAll, setShareWithAll] = useState(true);
@@ -511,6 +518,27 @@ const TutorDashboard: React.FC = () => {
     }
   };
 
+  const handlePreviewCertificate = async () => {
+    setPreviewLoading(true);
+    try {
+      const blob = await materialsAPI.getTutorCertificatePreview({
+        student_name: certificatePreviewForm.student_name,
+        subject: certificatePreviewForm.subject,
+        session_name: certificatePreviewForm.session_name || undefined,
+        session_date: certificatePreviewForm.session_date || undefined,
+      });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setMessage({ type: 'error', text: err.response?.data?.detail || 'Failed to generate certificate preview' });
+      setTimeout(() => setMessage(null), 3000);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   const handleUpdateSessionName = async (bookingId: string) => {
     if (!sessionNameInput.trim()) {
       setMessage({ type: 'error', text: 'Session name is required' });
@@ -883,6 +911,50 @@ const TutorDashboard: React.FC = () => {
                             className="h-10 max-w-[240px] object-contain bg-white border border-gray-200 rounded px-2 py-1"
                           />
                         )}
+                      </div>
+                    </div>
+
+                    <div className="mt-5 border-t border-gray-100 pt-4">
+                      <p className="text-sm font-semibold text-gray-900 mb-2">Certificate Preview</p>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Preview final certificate with your signature and alignment before students download it.
+                      </p>
+
+                      <div className="grid sm:grid-cols-2 gap-3">
+                        <input
+                          type="text"
+                          value={certificatePreviewForm.student_name}
+                          onChange={(e) => setCertificatePreviewForm(prev => ({ ...prev, student_name: e.target.value }))}
+                          placeholder="Student name"
+                          className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                        <input
+                          type="text"
+                          value={certificatePreviewForm.subject}
+                          onChange={(e) => setCertificatePreviewForm(prev => ({ ...prev, subject: e.target.value }))}
+                          placeholder="Subject"
+                          className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                        <input
+                          type="text"
+                          value={certificatePreviewForm.session_name}
+                          onChange={(e) => setCertificatePreviewForm(prev => ({ ...prev, session_name: e.target.value }))}
+                          placeholder="Session course name (optional)"
+                          className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 sm:col-span-2"
+                        />
+                        <input
+                          type="date"
+                          value={certificatePreviewForm.session_date}
+                          onChange={(e) => setCertificatePreviewForm(prev => ({ ...prev, session_date: e.target.value }))}
+                          className="px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                        />
+                        <button
+                          onClick={handlePreviewCertificate}
+                          disabled={previewLoading}
+                          className="px-4 py-2 bg-secondary-600 text-white text-sm rounded-lg hover:bg-secondary-700 transition-colors disabled:opacity-50"
+                        >
+                          {previewLoading ? 'Generating...' : 'Open Certificate Preview'}
+                        </button>
                       </div>
                     </div>
                   </div>

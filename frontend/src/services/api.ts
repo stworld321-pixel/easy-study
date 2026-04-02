@@ -1126,6 +1126,19 @@ export const materialsAPI = {
     const response = await api.post(`/certificates/${certificateId}/regenerate`);
     return response.data;
   },
+
+  getTutorCertificatePreview: async (params: {
+    student_name: string;
+    subject: string;
+    session_name?: string;
+    session_date?: string;
+  }): Promise<Blob> => {
+    const response = await api.get('/certificates/preview/tutor', {
+      params,
+      responseType: 'blob',
+    });
+    return response.data;
+  },
 };
 
 // Messaging API Types

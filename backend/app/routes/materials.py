@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
+from fastapi.responses import Response
 from typing import Dict, List, Optional
 from datetime import datetime
 import logging
@@ -1048,3 +1049,50 @@ async def regenerate_certificate(certificate_id: str, current_user: User = Depen
     except Exception:
         logger.exception("Failed to regenerate certificate %s", certificate_id)
         raise HTTPException(status_code=500, detail="Failed to regenerate certificate")
+
+
+@router.get("/certificates/preview/tutor")
+async def preview_certificate_for_tutor(
+    student_name: str = Query(default="STUDENT NAME"),
+    subject: str = Query(default="GENERAL SESSION"),
+    session_name: Optional[str] = Query(default=None),
+    session_date: Optional[str] = Query(default=None),
+    current_user: User = Depends(get_current_user),
+):
+    """Generate a live certificate preview for tutors (PDF, not persisted)."""
+    if current_user.role != "tutor":
+        raise HTTPException(status_code=403, detail="Only tutors can preview certificates")
+
+    from app.models.tutor import TutorProfile
+    tutor_profile = await TutorProfile.find_one(TutorProfile.user_id == str(current_user.id))
+    if not tutor_profile:
+        raise HTTPException(status_code=404, detail="Tutor profile not found")
+
+    safe_student_name = (student_name or "").strip() or "STUDENT NAME"
+    safe_subject = (subject or "").strip() or "GENERAL SESSION"
+    safe_session_name = (session_name or "").strip() or None
+
+    parsed_session_date = datetime.utcnow()
+    if session_date:
+        try:
+            parsed_session_date = datetime.fromisoformat(session_date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid session_date format. Use YYYY-MM-DD")
+
+    certificate_number = f"PREVIEW-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+
+    pdf_bytes = build_certificate_pdf(
+        student_name=safe_student_name,
+        tutor_name=(tutor_profile.full_name or current_user.full_name or "TUTOR"),
+        subject=safe_subject,
+        session_date=parsed_session_date,
+        certificate_number=certificate_number,
+        session_name=safe_session_name,
+        tutor_signature_url=tutor_profile.signature_image_url,
+    )
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline; filename=certificate-preview.pdf"},
+    )
