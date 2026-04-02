@@ -217,6 +217,7 @@ const TutorCard: React.FC<{ tutor: TutorProfile; index: number; onBookTrial: (tu
   );
 };
 
+
 // Filter Chip Component
 const FilterChip: React.FC<{
   label: string;
@@ -516,6 +517,7 @@ const FindTutors: React.FC = () => {
                 </div>
               </div>
             </div>
+
           </motion.div>
         </div>
       </div>
@@ -541,6 +543,7 @@ const FindTutors: React.FC = () => {
                   </button>
                 )}
               </div>
+
 
               {/* Session Type */}
               <div className="mb-6">

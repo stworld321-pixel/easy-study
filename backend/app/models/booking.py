@@ -25,6 +25,7 @@ class Booking(Document):
 
     price: float
     currency: str = "INR"
+    session_name: Optional[str] = None
 
     status: BookingStatus = BookingStatus.PENDING
     payment_status: str = "pending"  # pending, paid, refunded

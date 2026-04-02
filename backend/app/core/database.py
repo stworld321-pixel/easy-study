@@ -23,13 +23,13 @@ async def connect_to_mongo():
     from app.models.payment import Payment, PlatformRevenue, StudentTutorRelation
     from app.models.blog import Blog
     from app.models.withdrawal import Withdrawal
-    from app.models.material import Material, Assignment, TutorRating
+    from app.models.material import Material, Assignment, TutorRating, CompletionCertificate
     from app.models.platform_settings import PlatformSettings
     from app.models.message import Conversation, Message
 
     await init_beanie(
         database=temp_client[settings.DATABASE_NAME],
-        document_models=[User, TutorProfile, Subject, Booking, Review, BookingSlot, TutorAvailability, BlockedDate, TimeSlot, Notification, Payment, PlatformRevenue, StudentTutorRelation, Blog, Withdrawal, Material, Assignment, TutorRating, PlatformSettings, Conversation, Message]
+        document_models=[User, TutorProfile, Subject, Booking, Review, BookingSlot, TutorAvailability, BlockedDate, TimeSlot, Notification, Payment, PlatformRevenue, StudentTutorRelation, Blog, Withdrawal, Material, Assignment, TutorRating, CompletionCertificate, PlatformSettings, Conversation, Message]
     )
 
     # Only publish global client after successful Beanie initialization.

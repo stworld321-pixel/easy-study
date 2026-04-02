@@ -144,6 +144,7 @@ def create_booking_response(b: Booking) -> BookingResponse:
         duration_minutes=b.duration_minutes,
         price=b.price,
         currency=b.currency,
+        session_name=b.session_name,
         status=b.status,
         notes=b.notes,
         meeting_link=safe_meeting_link,
@@ -203,6 +204,10 @@ class JitsiTestAccessResponse(BaseModel):
     launch_url: str
     is_moderator: bool
     jwt: Optional[str] = None
+
+
+class SessionNameUpdate(BaseModel):
+    session_name: str
 
 
 # Currency conversion rate (INR to USD)
@@ -600,7 +605,8 @@ async def update_booking(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    if booking.student_id != str(current_user.id) and booking.tutor_id != str(current_user.id):
+    is_student, is_tutor_owner = await _get_booking_access(booking, current_user)
+    if not is_student and not is_tutor_owner:
         raise HTTPException(status_code=403, detail="Not authorized")
 
     update_data = booking_data.model_dump(exclude_unset=True)
@@ -611,6 +617,57 @@ async def update_booking(
     await booking.save()
 
     return create_booking_response(booking)
+
+
+@router.put("/{booking_id}/session-name", response_model=BookingResponse)
+async def update_session_name(
+    booking_id: str,
+    payload: SessionNameUpdate,
+    current_user: User = Depends(get_current_user)
+):
+    """Set/update session name for a group slot (tutor only)."""
+    booking = await Booking.get(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    tutor = await TutorProfile.find_one(TutorProfile.user_id == str(current_user.id))
+    if not tutor or str(tutor.id) != booking.tutor_id:
+        raise HTTPException(status_code=403, detail="Only the tutor can update session name")
+
+    if booking.session_type != SessionType.GROUP:
+        raise HTTPException(status_code=400, detail="Session name can only be set for group sessions")
+
+    session_name = (payload.session_name or "").strip()
+    if not session_name:
+        raise HTTPException(status_code=400, detail="Session name is required")
+
+    if len(session_name) > 120:
+        raise HTTPException(status_code=400, detail="Session name must be 120 characters or less")
+
+    now = datetime.utcnow()
+
+    # Apply the same name to all active bookings in this group slot.
+    slot_bookings = await Booking.find({
+        "tutor_id": booking.tutor_id,
+        "session_type": SessionType.GROUP.value,
+        "scheduled_at": booking.scheduled_at,
+        "duration_minutes": booking.duration_minutes,
+        "status": {"$ne": BookingStatus.CANCELLED.value},
+    }).to_list()
+
+    if not slot_bookings:
+        booking.session_name = session_name
+        booking.updated_at = now
+        await booking.save()
+        return create_booking_response(booking)
+
+    for b in slot_bookings:
+        b.session_name = session_name
+        b.updated_at = now
+        await b.save()
+
+    refreshed = await Booking.get(booking_id)
+    return create_booking_response(refreshed if refreshed else booking)
 
 
 @router.post("/{booking_id}/confirm", response_model=BookingResponse)

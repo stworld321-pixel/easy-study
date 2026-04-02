@@ -63,3 +63,22 @@ class TutorRating(Document):
 
     class Settings:
         name = "tutor_ratings"
+
+
+class CompletionCertificate(Document):
+    """Completion certificates issued to students after feedback submission."""
+    student_id: str
+    student_name: str
+    tutor_id: str
+    tutor_name: str
+    booking_id: str
+    subject: str
+    session_name: Optional[str] = None
+    session_date: datetime
+    certificate_number: str
+    file_url: str
+    file_name: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Settings:
+        name = "completion_certificates"

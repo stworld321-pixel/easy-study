@@ -17,6 +17,7 @@ class BookingUpdate(BaseModel):
     scheduled_at: Optional[datetime] = None
     notes: Optional[str] = None
     meeting_link: Optional[str] = None
+    session_name: Optional[str] = None
 
 class BookingResponse(BaseModel):
     id: str
@@ -32,6 +33,7 @@ class BookingResponse(BaseModel):
     duration_minutes: int
     price: float
     currency: str
+    session_name: Optional[str] = None
     status: BookingStatus
     notes: Optional[str] = None
     meeting_link: Optional[str] = None

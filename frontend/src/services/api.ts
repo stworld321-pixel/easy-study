@@ -244,6 +244,7 @@ export interface BookingResponse {
   duration_minutes: number;
   price: number;
   currency: string;
+  session_name?: string;
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
   notes?: string;
   meeting_link?: string;
@@ -251,6 +252,7 @@ export interface BookingResponse {
   meeting_link_expired?: boolean;
   created_at: string;
 }
+
 
 export interface MeetingAccessResponse {
   booking_id: string;
@@ -328,6 +330,11 @@ export const bookingsAPI = {
 
   updateMeetLink: async (id: string, meetingLink: string): Promise<BookingResponse> => {
     const response = await api.put(`/bookings/${id}/meet-link`, { meeting_link: meetingLink });
+    return response.data;
+  },
+
+  updateSessionName: async (id: string, sessionName: string): Promise<BookingResponse> => {
+    const response = await api.put(`/bookings/${id}/session-name`, { session_name: sessionName });
     return response.data;
   },
 
@@ -992,6 +999,19 @@ export interface RatingResponse {
   rating: number;
   comment: string;
   session_date?: string;
+  certificate_url?: string;
+  created_at: string;
+}
+
+export interface CompletionCertificateResponse {
+  id: string;
+  booking_id: string;
+  subject: string;
+  session_name?: string;
+  tutor_name: string;
+  session_date: string;
+  certificate_number: string;
+  file_url: string;
   created_at: string;
 }
 
@@ -1082,6 +1102,16 @@ export const materialsAPI = {
 
   getTutorRatings: async (tutorId: string): Promise<RatingResponse[]> => {
     const response = await api.get(`/ratings/tutor/${tutorId}`);
+    return response.data;
+  },
+
+  getMyCertificates: async (): Promise<CompletionCertificateResponse[]> => {
+    const response = await api.get('/certificates/my');
+    return response.data;
+  },
+
+  regenerateCertificate: async (certificateId: string): Promise<CompletionCertificateResponse> => {
+    const response = await api.post(`/certificates/${certificateId}/regenerate`);
     return response.data;
   },
 };

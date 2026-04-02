@@ -104,6 +104,8 @@ const TutorDashboard: React.FC = () => {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [editingMeetLink, setEditingMeetLink] = useState<string | null>(null);
   const [meetLinkInput, setMeetLinkInput] = useState('');
+  const [editingSessionName, setEditingSessionName] = useState<string | null>(null);
+  const [sessionNameInput, setSessionNameInput] = useState('');
 
   // Custom subject input state
   const [customSubjectInput, setCustomSubjectInput] = useState('');
@@ -507,6 +509,41 @@ const TutorDashboard: React.FC = () => {
       setActionLoading(null);
     }
   };
+
+  const handleUpdateSessionName = async (bookingId: string) => {
+    if (!sessionNameInput.trim()) {
+      setMessage({ type: 'error', text: 'Session name is required' });
+      setTimeout(() => setMessage(null), 2500);
+      return;
+    }
+    setActionLoading(bookingId);
+    try {
+      const updated = await bookingsAPI.updateSessionName(bookingId, sessionNameInput.trim());
+      setBookings(prev =>
+        prev.map(b =>
+          b.tutor_id === updated.tutor_id &&
+          b.session_type === 'group' &&
+          b.scheduled_at === updated.scheduled_at &&
+          b.duration_minutes === updated.duration_minutes
+            ? { ...b, session_name: updated.session_name }
+            : b
+        )
+      );
+      setEditingSessionName(null);
+      setSessionNameInput('');
+      setMessage({ type: 'success', text: 'Group session name updated.' });
+      setTimeout(() => setMessage(null), 2500);
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      setMessage({ type: 'error', text: err.response?.data?.detail || 'Failed to update session name' });
+      setTimeout(() => setMessage(null), 3000);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+
+
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -1581,6 +1618,11 @@ const TutorDashboard: React.FC = () => {
                           <div className="text-sm text-gray-600 mt-1">
                             {booking.subject}
                           </div>
+                          {booking.session_type === 'group' && booking.session_name && (
+                            <div className="text-xs text-primary-700 mt-1">
+                              Session: {booking.session_name}
+                            </div>
+                          )}
                         </div>
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                           booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
@@ -1612,6 +1654,46 @@ const TutorDashboard: React.FC = () => {
                       <div className="mt-2 text-sm font-medium text-gray-700">
                         {booking.currency === 'INR' ? 'Rs ' : '$'}{booking.price.toFixed(2)} | {booking.duration_minutes} min | {booking.session_type}
                       </div>
+
+                      {booking.session_type === 'group' && (
+                        <div className="mt-2">
+                          {editingSessionName === booking.id ? (
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                              <input
+                                type="text"
+                                value={sessionNameInput}
+                                onChange={(e) => setSessionNameInput(e.target.value)}
+                                placeholder="Enter group session name"
+                                className="flex-1 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                                maxLength={120}
+                              />
+                              <button
+                                onClick={() => handleUpdateSessionName(booking.id)}
+                                disabled={actionLoading === booking.id}
+                                className="px-3 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 disabled:opacity-50"
+                              >
+                                {actionLoading === booking.id ? '...' : 'Save Name'}
+                              </button>
+                              <button
+                                onClick={() => { setEditingSessionName(null); setSessionNameInput(''); }}
+                                className="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditingSessionName(booking.id);
+                                setSessionNameInput(booking.session_name || booking.subject);
+                              }}
+                              className="text-sm text-primary-600 hover:text-primary-700"
+                            >
+                              {booking.session_name ? 'Edit Session Name' : 'Add Session Name'}
+                            </button>
+                          )}
+                        </div>
+                      )}
 
                       {booking.status === 'confirmed' && (
                         <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200">

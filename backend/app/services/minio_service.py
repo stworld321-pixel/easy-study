@@ -287,6 +287,50 @@ class MinIOService:
             print(f"Error uploading file: {e}")
             return None
 
+    def upload_bytes(
+        self,
+        file_data: bytes,
+        filename: str,
+        folder: str = "files",
+        content_type: str = "application/octet-stream"
+    ) -> Optional[dict]:
+        """
+        Upload raw bytes as a file to MinIO/local fallback.
+        """
+        self._ensure_initialized()
+        try:
+            ext = filename.lower().split('.')[-1] if '.' in filename else 'bin'
+            unique_name = f"{folder}/{uuid.uuid4().hex}.{ext}"
+
+            if not self.client:
+                if not self._save_local(unique_name, file_data):
+                    return None
+                return {
+                    "url": self._build_url(unique_name),
+                    "object_name": unique_name,
+                    "size": len(file_data),
+                    "content_type": content_type
+                }
+
+            self.client.put_object(
+                self.bucket,
+                unique_name,
+                io.BytesIO(file_data),
+                length=len(file_data),
+                content_type=content_type
+            )
+
+            print(f"Uploaded bytes file: {unique_name}")
+            return {
+                "url": self._build_url(unique_name),
+                "object_name": unique_name,
+                "size": len(file_data),
+                "content_type": content_type
+            }
+        except Exception as e:
+            print(f"Error uploading bytes file: {e}")
+            return None
+
     async def delete_file(self, url: str) -> bool:
         """
         Delete a file from MinIO by its URL

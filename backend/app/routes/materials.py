@@ -4,13 +4,14 @@ from datetime import datetime
 import logging
 import asyncio
 from pydantic import BaseModel
-from app.models.material import Material, Assignment, TutorRating
+from app.models.material import Material, Assignment, TutorRating, CompletionCertificate
 from app.models.user import User
 from app.core.config import settings
 from app.routes.auth import get_current_user
 from app.services.minio_service import minio_service
 from app.services.email_service import email_service
 from app.services.notification_service import notification_service
+from app.services.certificate_service import build_certificate_pdf
 from app.models.notification import NotificationType
 
 router = APIRouter()
@@ -97,6 +98,19 @@ class RatingResponse(BaseModel):
     rating: int
     comment: str
     session_date: Optional[datetime] = None
+    certificate_url: Optional[str] = None
+    created_at: datetime
+
+
+class CertificateResponse(BaseModel):
+    id: str
+    booking_id: str
+    subject: str
+    session_name: Optional[str] = None
+    tutor_name: str
+    session_date: datetime
+    certificate_number: str
+    file_url: str
     created_at: datetime
 
 
@@ -748,6 +762,19 @@ async def create_rating(
     if current_user.role != "student":
         raise HTTPException(status_code=403, detail="Only students can rate tutors")
 
+    booking = None
+    if data.booking_id:
+        from app.models.booking import Booking
+        booking = await Booking.get(data.booking_id)
+        if not booking:
+            raise HTTPException(status_code=404, detail="Booking not found")
+        if booking.student_id != str(current_user.id):
+            raise HTTPException(status_code=403, detail="You can only rate your own session")
+        if booking.status == "cancelled":
+            raise HTTPException(status_code=400, detail="Cannot rate a cancelled session")
+        if booking.status != "completed" and booking.scheduled_at > datetime.utcnow():
+            raise HTTPException(status_code=400, detail="You can rate only after session completion")
+
     # Check if already rated this tutor for this booking
     if data.booking_id:
         existing = await TutorRating.find_one(
@@ -769,6 +796,80 @@ async def create_rating(
         session_date=data.session_date
     )
     await rating.insert()
+
+    certificate_doc: Optional[CompletionCertificate] = None
+    certificate_url: Optional[str] = None
+    if data.booking_id:
+        try:
+            existing_certificate = await CompletionCertificate.find_one(
+                CompletionCertificate.booking_id == data.booking_id
+            )
+            if existing_certificate:
+                certificate_doc = existing_certificate
+                certificate_url = existing_certificate.file_url
+            else:
+                session_date = booking.scheduled_at if booking else (data.session_date or datetime.utcnow())
+                certificate_number = f"ZC-{session_date.strftime('%Y%m%d')}-{str(current_user.id)[-6:].upper()}"
+                pdf_bytes = build_certificate_pdf(
+                    student_name=current_user.full_name,
+                    tutor_name=data.tutor_name,
+                    subject=data.subject,
+                    session_date=session_date,
+                    certificate_number=certificate_number,
+                    session_name=(booking.session_name if booking else None),
+                )
+                file_name = f"completion-certificate-{data.booking_id}.pdf"
+                upload_result = minio_service.upload_bytes(
+                    file_data=pdf_bytes,
+                    filename=file_name,
+                    folder=f"certificates/{current_user.id}",
+                    content_type="application/pdf",
+                )
+                if upload_result and upload_result.get("url"):
+                    certificate_doc = CompletionCertificate(
+                        student_id=str(current_user.id),
+                        student_name=current_user.full_name,
+                        tutor_id=data.tutor_id,
+                        tutor_name=data.tutor_name,
+                        booking_id=data.booking_id,
+                        subject=data.subject,
+                        session_name=(booking.session_name if booking else None),
+                        session_date=session_date,
+                        certificate_number=certificate_number,
+                        file_url=upload_result["url"],
+                        file_name=file_name,
+                    )
+                    await certificate_doc.insert()
+                    certificate_url = upload_result["url"]
+
+                    if current_user.email:
+                        _dispatch_background(
+                            email_service.send_email(
+                                to_email=current_user.email,
+                                subject="Your Session Completion Certificate is Ready",
+                                html_content=email_service._base_template(
+                                    f"""
+                                    <h2 style=\"color:#1f2937; margin:0 0 16px;\">Certificate Generated</h2>
+                                    <p style=\"color:#4b5563;\">Hi {current_user.full_name},</p>
+                                    <p style=\"color:#4b5563;\">Thanks for submitting feedback. Your completion certificate is now available.</p>
+                                    <p style=\"color:#4b5563;\"><strong>Subject:</strong> {data.subject}</p>
+                                    <p style=\"color:#4b5563;\"><strong>Tutor:</strong> {data.tutor_name}</p>
+                                    <p style=\"color:#4b5563;\"><strong>Certificate No:</strong> {certificate_number}</p>
+                                    <div style=\"text-align:center;\">
+                                        <a href=\"{upload_result['url']}\"
+                                           style=\"display:inline-block; background:#2563eb; color:white; text-decoration:none; padding:12px 20px; border-radius:8px;\">
+                                           Download Certificate
+                                        </a>
+                                    </div>
+                                    <p style=\"color:#6b7280; font-size:12px; margin-top:14px;\">You can also download this anytime from your Student Dashboard > Feedback.</p>
+                                    """
+                                ),
+                                plain_content=f"Your certificate is ready. Download: {upload_result['url']}",
+                            ),
+                            "completion_certificate_email",
+                        )
+        except Exception:
+            logger.exception("Failed to generate completion certificate for booking %s", data.booking_id)
 
     # Update tutor's average rating in their profile
     try:
@@ -794,6 +895,7 @@ async def create_rating(
         rating=rating.rating,
         comment=rating.comment,
         session_date=rating.session_date,
+        certificate_url=certificate_url,
         created_at=rating.created_at
     )
 
@@ -823,6 +925,7 @@ async def get_my_ratings(current_user: User = Depends(get_current_user)):
             rating=r.rating,
             comment=r.comment,
             session_date=r.session_date,
+            certificate_url=None,
             created_at=r.created_at
         )
         for r in ratings
@@ -845,7 +948,89 @@ async def get_tutor_ratings(tutor_id: str):
             rating=r.rating,
             comment=r.comment,
             session_date=r.session_date,
+            certificate_url=None,
             created_at=r.created_at
         )
         for r in ratings
     ]
+
+
+@router.get("/certificates/my", response_model=List[CertificateResponse])
+async def get_my_certificates(current_user: User = Depends(get_current_user)):
+    """Get completion certificates for current student."""
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Only students can view certificates")
+
+    certificates = await CompletionCertificate.find(
+        CompletionCertificate.student_id == str(current_user.id)
+    ).sort(-CompletionCertificate.created_at).to_list()
+
+    return [
+        CertificateResponse(
+            id=str(c.id),
+            booking_id=c.booking_id,
+            subject=c.subject,
+            session_name=c.session_name,
+            tutor_name=c.tutor_name,
+            session_date=c.session_date,
+            certificate_number=c.certificate_number,
+            file_url=c.file_url,
+            created_at=c.created_at,
+        )
+        for c in certificates
+    ]
+
+
+@router.post("/certificates/{certificate_id}/regenerate", response_model=CertificateResponse)
+async def regenerate_certificate(certificate_id: str, current_user: User = Depends(get_current_user)):
+    """Regenerate an existing certificate using the latest template."""
+    if current_user.role != "student":
+        raise HTTPException(status_code=403, detail="Only students can regenerate certificates")
+
+    certificate = await CompletionCertificate.get(certificate_id)
+    if not certificate:
+        raise HTTPException(status_code=404, detail="Certificate not found")
+
+    if certificate.student_id != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to regenerate this certificate")
+
+    try:
+        pdf_bytes = build_certificate_pdf(
+            student_name=certificate.student_name,
+            tutor_name=certificate.tutor_name,
+            subject=certificate.subject,
+            session_date=certificate.session_date,
+            certificate_number=certificate.certificate_number,
+            session_name=certificate.session_name,
+        )
+
+        file_name = f"completion-certificate-{certificate.booking_id}-v2.pdf"
+        upload_result = minio_service.upload_bytes(
+            file_data=pdf_bytes,
+            filename=file_name,
+            folder=f"certificates/{current_user.id}",
+            content_type="application/pdf",
+        )
+        if not upload_result or not upload_result.get("url"):
+            raise HTTPException(status_code=500, detail="Failed to upload regenerated certificate")
+
+        certificate.file_url = upload_result["url"]
+        certificate.file_name = file_name
+        await certificate.save()
+
+        return CertificateResponse(
+            id=str(certificate.id),
+            booking_id=certificate.booking_id,
+            subject=certificate.subject,
+            session_name=certificate.session_name,
+            tutor_name=certificate.tutor_name,
+            session_date=certificate.session_date,
+            certificate_number=certificate.certificate_number,
+            file_url=certificate.file_url,
+            created_at=certificate.created_at,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Failed to regenerate certificate %s", certificate_id)
+        raise HTTPException(status_code=500, detail="Failed to regenerate certificate")

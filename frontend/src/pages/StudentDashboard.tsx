@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import axios from 'axios';
 import {
   Calendar, Clock, Video, DollarSign,
   Check, X, AlertCircle, ExternalLink, Copy, User,
@@ -8,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { bookingsAPI, materialsAPI } from '../services/api';
-import type { AssignmentResponse, BookingResponse, MaterialResponse, RatingResponse } from '../services/api';
+import type { AssignmentResponse, BookingResponse, CompletionCertificateResponse, MaterialResponse, RatingResponse } from '../services/api';
 import ChatInbox from '../components/ChatInbox';
 
 const StudentDashboard: React.FC = () => {
@@ -27,8 +28,15 @@ const StudentDashboard: React.FC = () => {
   const [materials, setMaterials] = useState<MaterialResponse[]>([]);
   const [assignments, setAssignments] = useState<AssignmentResponse[]>([]);
   const [myRatings, setMyRatings] = useState<RatingResponse[]>([]);
+  const [myCertificates, setMyCertificates] = useState<CompletionCertificateResponse[]>([]);
   const [showRatingModal, setShowRatingModal] = useState(false);
-  const [ratingForm, setRatingForm] = useState({ tutor_id: '', tutor_name: '', subject: '', rating: 5, comment: '' });
+  const [ratingForm, setRatingForm] = useState({
+    tutor_id: '',
+    tutor_name: '',
+    subject: '',
+    rating: 5,
+    comment: ''
+  });
   const [selectedBookingForRating, setSelectedBookingForRating] = useState<BookingResponse | null>(null);
   const [ratingLoading, setRatingLoading] = useState(false);
 
@@ -45,6 +53,7 @@ const StudentDashboard: React.FC = () => {
     fetchMaterials();
     fetchAssignments();
     fetchMyRatings();
+    fetchMyCertificates();
   }, []);
 
   // Auto-open feedback popup when redirected from meeting end.
@@ -89,6 +98,15 @@ const StudentDashboard: React.FC = () => {
       setMyRatings(data);
     } catch (error) {
       console.error('Failed to fetch ratings:', error);
+    }
+  };
+
+  const fetchMyCertificates = async () => {
+    try {
+      const data = await materialsAPI.getMyCertificates();
+      setMyCertificates(data);
+    } catch (error) {
+      console.error('Failed to fetch certificates:', error);
     }
   };
 
@@ -706,9 +724,15 @@ const StudentDashboard: React.FC = () => {
                             session_date: selectedBookingForRating?.scheduled_at
                           });
                           setMyRatings([newRating, ...myRatings]);
+                          await fetchMyCertificates();
                           setShowRatingModal(false);
                           setSelectedBookingForRating(null);
-                          setMessage({ type: 'success', text: 'Thank you for your feedback!' });
+                          setMessage({
+                            type: 'success',
+                            text: newRating.certificate_url
+                              ? 'Thank you for your feedback! Your certificate is ready to download.'
+                              : 'Thank you for your feedback!'
+                          });
                           setTimeout(() => setMessage(null), 3000);
                         } catch (error) {
                           console.error('Failed to submit rating:', error);
@@ -729,6 +753,65 @@ const StudentDashboard: React.FC = () => {
             )}
 
             {/* My Ratings List */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-900">Session Completion Certificates</h3>
+              </div>
+              {myCertificates.length === 0 ? (
+                <div className="p-10 text-center">
+                  <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500">No certificates yet. Submit feedback after completed sessions to receive certificates.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {myCertificates.map(certificate => (
+                    <div key={certificate.id} className="p-6 flex items-center justify-between gap-4">
+                      <div>
+                        <h4 className="font-semibold text-gray-900">{certificate.subject}</h4>
+                        {certificate.session_name && (
+                          <p className="text-sm text-gray-600">Session: {certificate.session_name}</p>
+                        )}
+                        <p className="text-sm text-gray-600">Tutor: {certificate.tutor_name}</p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Session: {new Date(certificate.session_date).toLocaleDateString()} | Certificate No: {certificate.certificate_number}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={async () => {
+                            try {
+                              const updated = await materialsAPI.regenerateCertificate(certificate.id);
+                              setMyCertificates(prev => prev.map(c => c.id === certificate.id ? updated : c));
+                              setMessage({ type: 'success', text: 'Certificate redesigned. Download the new file now.' });
+                              setTimeout(() => setMessage(null), 3000);
+                            } catch (error) {
+                              const detail = axios.isAxiosError(error)
+                                ? (error.response?.data?.detail || error.message)
+                                : 'Failed to regenerate certificate.';
+                              setMessage({ type: 'error', text: typeof detail === 'string' ? detail : 'Failed to regenerate certificate.' });
+                              setTimeout(() => setMessage(null), 3000);
+                            }
+                          }}
+                          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors"
+                        >
+                          Refresh Design
+                        </button>
+                        <a
+                          href={certificate.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-2 px-4 py-2 bg-primary-100 text-primary-700 rounded-xl hover:bg-primary-200 transition-colors"
+                        >
+                          <Download className="w-4 h-4" />
+                          Download
+                        </a>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
               <div className="p-4 border-b border-gray-100">
                 <h3 className="font-semibold text-gray-900">Your Past Ratings</h3>
