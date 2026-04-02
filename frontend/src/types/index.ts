@@ -16,6 +16,7 @@ export interface TutorProfile {
   full_name?: string;
   email?: string;
   avatar?: string;
+  signature_image_url?: string;
   headline?: string;
   bio?: string;
   experience_years: number;

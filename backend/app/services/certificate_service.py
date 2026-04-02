@@ -1,9 +1,11 @@
 from io import BytesIO
 from datetime import datetime
+from urllib.request import urlopen
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase.pdfmetrics import stringWidth
+from reportlab.lib.utils import ImageReader
 
 
 def build_certificate_pdf(
@@ -13,6 +15,7 @@ def build_certificate_pdf(
     session_date: datetime,
     certificate_number: str,
     session_name: str | None = None,
+    tutor_signature_url: str | None = None,
 ) -> bytes:
     """
     Build a certificate PDF and return bytes.
@@ -90,20 +93,21 @@ def build_certificate_pdf(
     c.drawCentredString(page_width / 2 + 28, page_height - 156, "OF APPRECIATION")
 
     # Subject row
+    center_x = page_width / 2 + 28
     c.setFillColor(text_dark)
-    c.setFont("Helvetica-Bold", 14)
-    title_text = (session_name or subject or "").strip() or "SESSION"
-    c.drawCentredString(page_width / 2 + 28, page_height - 194, title_text.upper())
+    c.setFont("Helvetica-Bold", 12)
+    title_text = (session_name or subject or "").strip() or "SESSION COURSE"
+    c.drawCentredString(center_x, page_height - 194, f"SESSION COURSE NAME: {title_text.upper()}")
 
     # Intro text
     c.setFont("Helvetica-Bold", 20)
-    c.drawCentredString(page_width / 2 + 28, page_height - 246, "THIS IS TO CERTIFY THAT")
+    c.drawCentredString(center_x, page_height - 246, "THIS IS TO CERTIFY THAT")
 
     # Student name
     safe_name = (student_name or "").strip() or "STUDENT"
     c.setFillColor(colors.HexColor("#2d2d2d"))
-    c.setFont("Times-BoldItalic", 44)
-    c.drawCentredString(page_width / 2 + 28, page_height - 304, safe_name.upper())
+    c.setFont("Times-BoldItalic", 40)
+    c.drawCentredString(center_x, page_height - 304, safe_name.upper())
 
     # Separator line
     c.setStrokeColor(gold)
@@ -114,37 +118,66 @@ def build_certificate_pdf(
     date_text = session_date.strftime("%B %d, %Y")
     body_text = (
         f"has actively participated in the one hour online session on "
-        f"\"{title_text}\" conducted on {date_text} by ZEAL CATALYST."
+        f"\"{title_text}\" conducted by {tutor_name} on {date_text}."
     )
     c.setFillColor(text_muted)
-    c.setFont("Helvetica", 20)
-    text_obj = c.beginText(250, page_height - 374)
-    text_obj.setLeading(28)
-    max_width = page_width - 350
+    c.setFont("Helvetica", 16)
+    max_width = page_width - 420
     words = body_text.split()
+    lines = []
     line = ""
     for word in words:
         trial = f"{line} {word}".strip()
-        if stringWidth(trial, "Helvetica", 20) <= max_width:
+        if stringWidth(trial, "Helvetica", 16) <= max_width:
             line = trial
         else:
-            text_obj.textLine(line)
+            lines.append(line)
             line = word
     if line:
-        text_obj.textLine(line)
-    c.drawText(text_obj)
+        lines.append(line)
 
-    # Signature block
-    sig_y = 116
+    text_y = page_height - 370
+    for idx, text_line in enumerate(lines):
+        c.drawCentredString(center_x, text_y - (idx * 22), text_line)
+
+    # Signature block (placed below body with safe gap to prevent overlap)
+    last_body_line_y = text_y - ((max(len(lines), 1) - 1) * 22)
+    sig_line_y = min(last_body_line_y - 32, 132)  # keep lower than body and inside page
+    sig_name_y = sig_line_y - 26
+    sig_role_y = sig_name_y - 22
+
     c.setStrokeColor(colors.HexColor("#444444"))
     c.setLineWidth(1)
-    c.line(300, sig_y + 54, 510, sig_y + 54)
+    c.line(300, sig_line_y, 540, sig_line_y)
+    signature_drawn = False
+    if tutor_signature_url:
+        try:
+            with urlopen(tutor_signature_url, timeout=5) as response:
+                signature_bytes = response.read()
+            signature_img = ImageReader(BytesIO(signature_bytes))
+            c.drawImage(
+                signature_img,
+                318,
+                sig_name_y - 2,
+                width=210,
+                height=42,
+                preserveAspectRatio=True,
+                mask="auto",
+                anchor="sw",
+            )
+            signature_drawn = True
+        except Exception:
+            signature_drawn = False
+
     c.setFillColor(text_dark)
     c.setFont("Helvetica-Bold", 16)
-    c.drawString(320, sig_y + 28, tutor_name.upper())
+    if not signature_drawn:
+        c.drawString(320, sig_name_y, tutor_name.upper())
+    else:
+        c.drawCentredString((300 + 540) / 2, sig_name_y - 14, tutor_name.upper())
     c.setFont("Helvetica", 13)
     c.setFillColor(text_muted)
-    c.drawString(300, sig_y + 8, "Expert Tutor & Convener")
+    c.drawString(300, sig_role_y, "Session Tutor")
 
     # Brand block
     c.setFillColor(colors.HexColor("#6a7bff"))

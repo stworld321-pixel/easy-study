@@ -49,6 +49,7 @@ class TutorProfileUpdate(BaseModel):
     offers_private: Optional[bool] = None
     offers_group: Optional[bool] = None
     is_available: Optional[bool] = None
+    signature_image_url: Optional[str] = None
 
 class TutorProfileResponse(BaseModel):
     id: str
@@ -56,6 +57,7 @@ class TutorProfileResponse(BaseModel):
     full_name: Optional[str] = None
     email: Optional[str] = None
     avatar: Optional[str] = None
+    signature_image_url: Optional[str] = None
     headline: Optional[str] = None
     bio: Optional[str] = None
     experience_years: int

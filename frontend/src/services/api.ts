@@ -886,6 +886,18 @@ export const uploadAPI = {
     return response.data;
   },
 
+  uploadTutorSignature: async (file: File, removeBackground = true): Promise<UploadResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('remove_background', String(removeBackground));
+    const response = await api.post('/uploads/tutor-signature', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
   deleteAvatar: async (): Promise<{ success: boolean; message: string }> => {
     const response = await api.delete('/uploads/avatar');
     return response.data;

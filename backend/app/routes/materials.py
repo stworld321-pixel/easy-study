@@ -810,6 +810,12 @@ async def create_rating(
             else:
                 session_date = booking.scheduled_at if booking else (data.session_date or datetime.utcnow())
                 certificate_number = f"ZC-{session_date.strftime('%Y%m%d')}-{str(current_user.id)[-6:].upper()}"
+                tutor_signature_url = None
+                if booking and booking.tutor_id:
+                    from app.models.tutor import TutorProfile
+                    tutor_profile = await TutorProfile.get(booking.tutor_id)
+                    if tutor_profile:
+                        tutor_signature_url = tutor_profile.signature_image_url
                 pdf_bytes = build_certificate_pdf(
                     student_name=current_user.full_name,
                     tutor_name=data.tutor_name,
@@ -817,6 +823,7 @@ async def create_rating(
                     session_date=session_date,
                     certificate_number=certificate_number,
                     session_name=(booking.session_name if booking else None),
+                    tutor_signature_url=tutor_signature_url,
                 )
                 file_name = f"completion-certificate-{data.booking_id}.pdf"
                 upload_result = minio_service.upload_bytes(
@@ -995,6 +1002,12 @@ async def regenerate_certificate(certificate_id: str, current_user: User = Depen
         raise HTTPException(status_code=403, detail="Not authorized to regenerate this certificate")
 
     try:
+        tutor_signature_url = None
+        if certificate.tutor_id:
+            from app.models.tutor import TutorProfile
+            tutor_profile = await TutorProfile.get(certificate.tutor_id)
+            if tutor_profile:
+                tutor_signature_url = tutor_profile.signature_image_url
         pdf_bytes = build_certificate_pdf(
             student_name=certificate.student_name,
             tutor_name=certificate.tutor_name,
@@ -1002,6 +1015,7 @@ async def regenerate_certificate(certificate_id: str, current_user: User = Depen
             session_date=certificate.session_date,
             certificate_number=certificate.certificate_number,
             session_name=certificate.session_name,
+            tutor_signature_url=tutor_signature_url,
         )
 
         file_name = f"completion-certificate-{certificate.booking_id}-v2.pdf"

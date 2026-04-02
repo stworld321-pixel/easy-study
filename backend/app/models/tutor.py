@@ -54,6 +54,7 @@ class TutorProfile(Document):
     full_name: Optional[str] = None
     email: Optional[str] = None
     avatar: Optional[str] = None
+    signature_image_url: Optional[str] = None
 
     # Google Calendar integration (tutor-owned OAuth tokens)
     google_calendar_connected: bool = False

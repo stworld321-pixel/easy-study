@@ -10,7 +10,7 @@ import {
   FileText, ClipboardList, MessageSquare, Upload, Download, Trash2, Star
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { tutorsAPI, availabilityAPI, bookingsAPI, withdrawalAPI, materialsAPI, googleCalendarAPI } from '../services/api';
+import { tutorsAPI, availabilityAPI, bookingsAPI, withdrawalAPI, materialsAPI, googleCalendarAPI, uploadAPI } from '../services/api';
 import ImageUpload from '../components/ImageUpload';
 import ChatInbox from '../components/ChatInbox';
 import type { TutorProfile } from '../types';
@@ -124,6 +124,7 @@ const TutorDashboard: React.FC = () => {
   const [materialForm, setMaterialForm] = useState({ title: '', description: '', subject: '' });
   const [materialFile, setMaterialFile] = useState<File | null>(null);
   const [materialLoading, setMaterialLoading] = useState(false);
+  const [signatureUploading, setSignatureUploading] = useState(false);
   const [bookedStudents, setBookedStudents] = useState<BookedStudent[]>([]);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [shareWithAll, setShareWithAll] = useState(true);
@@ -839,6 +840,51 @@ const TutorDashboard: React.FC = () => {
                       <li>• Avoid group photos or logos</li>
                       <li>• Minimum 200x200 pixels recommended</li>
                     </ul>
+
+                    <div className="mt-5 border-t border-gray-100 pt-4">
+                      <p className="text-sm font-semibold text-gray-900 mb-2">Signature for Certificates</p>
+                      <p className="text-xs text-gray-500 mb-3">
+                        Upload your handwritten signature image. Background will be removed automatically for certificate printing.
+                      </p>
+
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <label className="px-3 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 cursor-pointer transition-colors">
+                          {signatureUploading ? 'Uploading...' : 'Upload Signature'}
+                          <input
+                            type="file"
+                            accept=".png,.jpg,.jpeg,.webp"
+                            className="hidden"
+                            disabled={signatureUploading}
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (!file) return;
+                              setSignatureUploading(true);
+                              try {
+                                const res = await uploadAPI.uploadTutorSignature(file, true);
+                                setProfile(prev => ({ ...prev, signature_image_url: res.url }));
+                                setMessage({ type: 'success', text: 'Signature uploaded successfully.' });
+                                setTimeout(() => setMessage(null), 2500);
+                              } catch (error: unknown) {
+                                const err = error as { response?: { data?: { detail?: string } } };
+                                setMessage({ type: 'error', text: err.response?.data?.detail || 'Failed to upload signature' });
+                                setTimeout(() => setMessage(null), 3000);
+                              } finally {
+                                setSignatureUploading(false);
+                                e.currentTarget.value = '';
+                              }
+                            }}
+                          />
+                        </label>
+
+                        {profile.signature_image_url && (
+                          <img
+                            src={profile.signature_image_url}
+                            alt="Tutor signature"
+                            className="h-10 max-w-[240px] object-contain bg-white border border-gray-200 rounded px-2 py-1"
+                          />
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
