@@ -811,8 +811,9 @@ async def create_rating(
         else:
             session_start_local = booking.scheduled_at.astimezone(tutor_tz)
 
-        if booking.status != "completed" and session_start_local > now_local:
-            raise HTTPException(status_code=400, detail="You can rate only after session starts")
+        # Guard only truly future-dated sessions. Same-day timezone edge cases should not block rating.
+        if booking.status != "completed" and session_start_local.date() > now_local.date():
+            raise HTTPException(status_code=400, detail="You can rate only after session date")
 
         # Auto-complete booking when student submits rating after session start.
         if booking.status == "confirmed" and session_start_local <= now_local:
