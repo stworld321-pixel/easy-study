@@ -80,12 +80,6 @@ interface DisplaySlot {
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
-const parseDateOnlyLocal = (dateStr: string) => {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  return new Date(y, (m || 1) - 1, d || 1);
-};
-
 const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const { user } = useAuth();
   const { formatPrice, currency } = useCurrency();
@@ -198,13 +192,6 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   };
 
   const getDayStyle = (day: CalendarDay) => {
-    const todayLocal = startOfLocalDay(new Date());
-    const dayLocal = startOfLocalDay(parseDateOnlyLocal(day.date));
-    const isPast = dayLocal < todayLocal;
-
-    if (isPast) {
-      return 'bg-gray-100 text-gray-300 cursor-not-allowed';
-    }
     if (day.is_blocked) {
       return 'bg-rose-50 text-rose-400 cursor-not-allowed';
     }
@@ -215,9 +202,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   };
 
   const handleDateSelect = (day: CalendarDay) => {
-    const todayLocal = startOfLocalDay(new Date());
-    const dayLocal = startOfLocalDay(parseDateOnlyLocal(day.date));
-    if (dayLocal < todayLocal || day.is_blocked || !day.is_available) {
+    if (day.is_blocked || !day.is_available) {
       return;
     }
     setSelectedDate(day.date);
@@ -636,7 +621,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                           {day && (
                             <button
                               onClick={() => handleDateSelect(day)}
-                              disabled={startOfLocalDay(parseDateOnlyLocal(day.date)) < startOfLocalDay(new Date()) || day.is_blocked || !day.is_available}
+                              disabled={day.is_blocked || !day.is_available}
                               className={`w-full h-full rounded-lg flex flex-col items-center justify-center transition-all text-sm ${getDayStyle(day)} ${
                                 selectedDate === day.date ? 'ring-2 ring-primary-500' : ''
                               }`}

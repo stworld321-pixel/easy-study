@@ -95,7 +95,7 @@ def _build_jitsi_access_token(
                 "id": str(user.id),
                 "name": user.full_name or "User",
                 "email": user.email or "",
-                "moderator": "true" if is_moderator else "false",
+                "moderator": is_moderator,
             }
         },
     }
@@ -559,7 +559,7 @@ async def get_jitsi_test_access(current_user: User = Depends(get_current_user)):
                     "id": str(current_user.id),
                     "name": current_user.full_name or "Tutor",
                     "email": current_user.email or "",
-                    "moderator": "true",
+                    "moderator": True,
                 }
             },
         }
