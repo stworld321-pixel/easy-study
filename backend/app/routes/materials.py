@@ -4,9 +4,11 @@ from typing import Dict, List, Optional
 from datetime import datetime, timedelta, timezone
 import logging
 import asyncio
+from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 from app.models.material import Material, Assignment, TutorRating, CompletionCertificate
 from app.models.user import User
+from app.models.availability import TutorAvailability
 from app.core.config import settings
 from app.routes.auth import get_current_user
 from app.services.minio_service import minio_service
@@ -23,6 +25,14 @@ def _to_utc_naive(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         return dt
     return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _safe_zoneinfo(name: Optional[str]) -> ZoneInfo:
+    tz_name = (name or "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("UTC")
 
 
 def _load_signature_bytes(signature_url: Optional[str]) -> Optional[bytes]:
@@ -792,15 +802,22 @@ async def create_rating(
             raise HTTPException(status_code=403, detail="You can only rate your own session")
         if booking.status == "cancelled":
             raise HTTPException(status_code=400, detail="Cannot rate a cancelled session")
-        session_start = _to_utc_naive(booking.scheduled_at)
-        now_utc = datetime.utcnow()
-        if booking.status != "completed" and session_start > now_utc:
+        availability = await TutorAvailability.find_one(TutorAvailability.tutor_id == booking.tutor_id)
+        tutor_tz = _safe_zoneinfo(getattr(availability, "timezone", None))
+        now_local = datetime.now(tutor_tz)
+
+        if booking.scheduled_at.tzinfo is None:
+            session_start_local = booking.scheduled_at.replace(tzinfo=tutor_tz)
+        else:
+            session_start_local = booking.scheduled_at.astimezone(tutor_tz)
+
+        if booking.status != "completed" and session_start_local > now_local:
             raise HTTPException(status_code=400, detail="You can rate only after session starts")
 
         # Auto-complete booking when student submits rating after session start.
-        if booking.status == "confirmed" and session_start <= now_utc:
+        if booking.status == "confirmed" and session_start_local <= now_local:
             booking.status = "completed"
-            booking.updated_at = now_utc
+            booking.updated_at = datetime.utcnow()
             await booking.save()
         resolved_tutor_id = booking.tutor_id or resolved_tutor_id
         resolved_tutor_name = booking.tutor_name or resolved_tutor_name
