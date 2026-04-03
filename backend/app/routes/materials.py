@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
 from fastapi.responses import Response
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 import asyncio
 from pydantic import BaseModel
@@ -17,6 +17,12 @@ from app.models.notification import NotificationType
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _to_utc_naive(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _load_signature_bytes(signature_url: Optional[str]) -> Optional[bytes]:
@@ -786,9 +792,16 @@ async def create_rating(
             raise HTTPException(status_code=403, detail="You can only rate your own session")
         if booking.status == "cancelled":
             raise HTTPException(status_code=400, detail="Cannot rate a cancelled session")
-        session_end = booking.scheduled_at + timedelta(minutes=max(1, int(booking.duration_minutes or 60)))
-        if booking.status != "completed" and session_end > datetime.utcnow():
-            raise HTTPException(status_code=400, detail="You can rate only after session completion")
+        session_start = _to_utc_naive(booking.scheduled_at)
+        now_utc = datetime.utcnow()
+        if booking.status != "completed" and session_start > now_utc:
+            raise HTTPException(status_code=400, detail="You can rate only after session starts")
+
+        # Auto-complete booking when student submits rating after session start.
+        if booking.status == "confirmed" and session_start <= now_utc:
+            booking.status = "completed"
+            booking.updated_at = now_utc
+            await booking.save()
         resolved_tutor_id = booking.tutor_id or resolved_tutor_id
         resolved_tutor_name = booking.tutor_name or resolved_tutor_name
         resolved_subject = booking.subject or resolved_subject

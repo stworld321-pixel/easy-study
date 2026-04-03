@@ -738,7 +738,10 @@ const StudentDashboard: React.FC = () => {
                           setTimeout(() => setMessage(null), 3000);
                         } catch (error) {
                           console.error('Failed to submit rating:', error);
-                          setMessage({ type: 'error', text: 'Failed to submit rating. Please try again.' });
+                          const detail = axios.isAxiosError(error)
+                            ? (error.response?.data?.detail || error.message)
+                            : 'Failed to submit rating. Please try again.';
+                          setMessage({ type: 'error', text: typeof detail === 'string' ? detail : 'Failed to submit rating. Please try again.' });
                           setTimeout(() => setMessage(null), 3000);
                         } finally {
                           setRatingLoading(false);
