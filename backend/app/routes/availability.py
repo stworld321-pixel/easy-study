@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List
 from datetime import datetime, timedelta
 import calendar
+from zoneinfo import ZoneInfo
 from app.models.user import User
 from app.models.tutor import TutorProfile
 from app.models.availability import TutorAvailability, BlockedDate
@@ -21,6 +22,7 @@ from app.schemas.availability import (
 from app.routes.auth import get_current_user
 
 router = APIRouter()
+EFFECTIVE_MIN_NOTICE_HOURS = 1
 
 async def get_or_create_availability(tutor_id: str) -> TutorAvailability:
     """Get tutor availability or create default one"""
@@ -86,6 +88,13 @@ def _slot_end(start_time: str, session_duration: int) -> str:
 
 def _to_session_type_value(raw: object) -> str:
     return getattr(raw, "value", str(raw))
+
+def _get_tutor_timezone(availability: TutorAvailability) -> ZoneInfo:
+    timezone_name = (availability.timezone or "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(timezone_name)
+    except Exception:
+        return ZoneInfo("UTC")
 
 
 def _validate_internal_no_overlap(schedule_dict: dict, label: str) -> None:
@@ -477,7 +486,9 @@ async def get_tutor_public_calendar(
     days = []
     num_days = calendar.monthrange(year, month)[1]
     day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-    today = datetime.now().date()
+    tutor_tz = _get_tutor_timezone(availability)
+    tutor_now = datetime.now(tutor_tz)
+    today = tutor_now.date()
 
     for day in range(1, num_days + 1):
         date_obj = datetime(year, month, day)
@@ -491,14 +502,14 @@ async def get_tutor_public_calendar(
         session_schedule = _get_schedule_by_session_type(availability, session_type)
         day_slots = session_schedule.get(day_of_week, [])
         slot_starts = _day_slot_starts(day_slots, availability.session_duration)
-        min_notice_cutoff = datetime.now() + timedelta(hours=max(0, int(availability.min_notice_hours or 0)))
+        min_notice_cutoff = tutor_now + timedelta(hours=EFFECTIVE_MIN_NOTICE_HOURS)
 
         normalized_day_slots = []
         available_count = 0
 
         for start_time in slot_starts:
             hour, minute = map(int, start_time.split(":"))
-            slot_dt = datetime(year, month, day, hour, minute)
+            slot_dt = datetime(year, month, day, hour, minute, tzinfo=tutor_tz)
             key = f"{date_str}|{start_time}"
             slot_doc = slot_index.get(key)
 
@@ -557,14 +568,15 @@ async def get_tutor_public_calendar(
                 "status": status,
             })
 
-        is_available = available_count > 0 and not is_blocked and availability.is_accepting_students
+        total_slots = len(normalized_day_slots)
+        is_available = total_slots > 0 and not is_blocked and availability.is_accepting_students
 
         days.append(CalendarDayStatus(
             date=date_str,
             is_available=is_available,
             is_blocked=is_blocked,
             reason=None,  # Don't expose reasons to students
-            slots_count=available_count if is_available else 0,
+            slots_count=total_slots if is_available else 0,
             time_slots=normalized_day_slots
         ))
 

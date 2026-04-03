@@ -41,7 +41,7 @@ class TutorAvailability(Document):
     session_duration: int = 60  # Default 60 minutes
     buffer_time: int = 15  # Buffer between sessions in minutes
     advance_booking_days: int = 30  # How far in advance can book
-    min_notice_hours: int = 24  # Minimum notice for booking
+    min_notice_hours: int = 1  # Minimum notice for booking
     is_accepting_students: bool = True
     group_session_capacity: int = 10
     private_weekly_schedule: dict = Field(default_factory=lambda: {

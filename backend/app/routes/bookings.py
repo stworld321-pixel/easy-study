@@ -15,6 +15,7 @@ from app.services.notification_service import notification_service
 from app.services.payment_service import payment_service
 from app.core.config import settings
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from uuid import uuid4
 from jose import jwt as jose_jwt
 from pymongo import ReturnDocument
@@ -23,6 +24,7 @@ from pymongo.errors import DuplicateKeyError
 router = APIRouter()
 logger = logging.getLogger(__name__)
 MEET_LINK_EXPIRE_GRACE_MINUTES = 15
+EFFECTIVE_MIN_NOTICE_HOURS = 1
 
 
 def _build_jitsi_room_name(booking: Booking) -> str:
@@ -43,6 +45,13 @@ def _build_in_app_meeting_link(booking: Booking) -> str:
 
 def _role_value(role: object) -> str:
     return getattr(role, "value", role)
+
+def _safe_zoneinfo(timezone_name: str | None) -> ZoneInfo:
+    tz_name = (timezone_name or "UTC").strip() or "UTC"
+    try:
+        return ZoneInfo(tz_name)
+    except Exception:
+        return ZoneInfo("UTC")
 
 
 async def _get_booking_access(booking: Booking, current_user: User) -> tuple[bool, bool]:
@@ -355,6 +364,23 @@ async def create_booking(
     tutor = await TutorProfile.get(booking_data.tutor_id)
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor not found")
+
+    availability = await TutorAvailability.find_one(TutorAvailability.tutor_id == booking_data.tutor_id)
+    tutor_tz = _safe_zoneinfo(getattr(availability, "timezone", None))
+    now_in_tutor_tz = datetime.now(tutor_tz)
+    min_notice_cutoff = now_in_tutor_tz + timedelta(hours=EFFECTIVE_MIN_NOTICE_HOURS)
+
+    scheduled_at = booking_data.scheduled_at
+    if scheduled_at.tzinfo is None:
+        scheduled_at_in_tutor_tz = scheduled_at.replace(tzinfo=tutor_tz)
+    else:
+        scheduled_at_in_tutor_tz = scheduled_at.astimezone(tutor_tz)
+
+    if scheduled_at_in_tutor_tz < min_notice_cutoff:
+        raise HTTPException(
+            status_code=400,
+            detail="This slot is closed. You can only book at least 1 hour in advance."
+        )
 
     # Student email is required for Google Meet attendee safety controls.
     if not current_user.email:
