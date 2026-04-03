@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
 from fastapi.responses import Response
 from typing import Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 import asyncio
 from pydantic import BaseModel
@@ -94,7 +94,7 @@ class RatingCreate(BaseModel):
     booking_id: Optional[str] = None
     subject: str
     rating: int
-    comment: str
+    comment: str = ""
     session_date: Optional[datetime] = None
 
 
@@ -773,6 +773,10 @@ async def create_rating(
         raise HTTPException(status_code=403, detail="Only students can rate tutors")
 
     booking = None
+    resolved_tutor_id = data.tutor_id
+    resolved_tutor_name = data.tutor_name
+    resolved_subject = data.subject
+    resolved_session_date = data.session_date
     if data.booking_id:
         from app.models.booking import Booking
         booking = await Booking.get(data.booking_id)
@@ -782,8 +786,13 @@ async def create_rating(
             raise HTTPException(status_code=403, detail="You can only rate your own session")
         if booking.status == "cancelled":
             raise HTTPException(status_code=400, detail="Cannot rate a cancelled session")
-        if booking.status != "completed" and booking.scheduled_at > datetime.utcnow():
+        session_end = booking.scheduled_at + timedelta(minutes=max(1, int(booking.duration_minutes or 60)))
+        if booking.status != "completed" and session_end > datetime.utcnow():
             raise HTTPException(status_code=400, detail="You can rate only after session completion")
+        resolved_tutor_id = booking.tutor_id or resolved_tutor_id
+        resolved_tutor_name = booking.tutor_name or resolved_tutor_name
+        resolved_subject = booking.subject or resolved_subject
+        resolved_session_date = booking.scheduled_at
 
     # Check if already rated this tutor for this booking
     if data.booking_id:
@@ -795,15 +804,15 @@ async def create_rating(
             raise HTTPException(status_code=400, detail="You have already rated this session")
 
     rating = TutorRating(
-        tutor_id=data.tutor_id,
-        tutor_name=data.tutor_name,
+        tutor_id=resolved_tutor_id,
+        tutor_name=resolved_tutor_name,
         student_id=str(current_user.id),
         student_name=current_user.full_name,
         booking_id=data.booking_id,
-        subject=data.subject,
+        subject=resolved_subject,
         rating=data.rating,
-        comment=data.comment,
-        session_date=data.session_date
+        comment=(data.comment or "").strip(),
+        session_date=resolved_session_date
     )
     await rating.insert()
 
@@ -818,7 +827,7 @@ async def create_rating(
                 certificate_doc = existing_certificate
                 certificate_url = existing_certificate.file_url
             else:
-                session_date = booking.scheduled_at if booking else (data.session_date or datetime.utcnow())
+                session_date = booking.scheduled_at if booking else (resolved_session_date or datetime.utcnow())
                 certificate_number = f"ZC-{session_date.strftime('%Y%m%d')}-{str(current_user.id)[-6:].upper()}"
                 tutor_signature_url = None
                 tutor_signature_bytes = None
@@ -830,8 +839,8 @@ async def create_rating(
                         tutor_signature_bytes = _load_signature_bytes(tutor_signature_url)
                 pdf_bytes = build_certificate_pdf(
                     student_name=current_user.full_name,
-                    tutor_name=data.tutor_name,
-                    subject=data.subject,
+                    tutor_name=resolved_tutor_name,
+                    subject=resolved_subject,
                     session_date=session_date,
                     certificate_number=certificate_number,
                     session_name=(booking.session_name if booking else None),
@@ -849,10 +858,10 @@ async def create_rating(
                     certificate_doc = CompletionCertificate(
                         student_id=str(current_user.id),
                         student_name=current_user.full_name,
-                        tutor_id=data.tutor_id,
-                        tutor_name=data.tutor_name,
+                        tutor_id=resolved_tutor_id,
+                        tutor_name=resolved_tutor_name,
                         booking_id=data.booking_id,
-                        subject=data.subject,
+                        subject=resolved_subject,
                         session_name=(booking.session_name if booking else None),
                         session_date=session_date,
                         certificate_number=certificate_number,
@@ -872,8 +881,8 @@ async def create_rating(
                                     <h2 style=\"color:#1f2937; margin:0 0 16px;\">Certificate Generated</h2>
                                     <p style=\"color:#4b5563;\">Hi {current_user.full_name},</p>
                                     <p style=\"color:#4b5563;\">Thanks for submitting feedback. Your completion certificate is now available.</p>
-                                    <p style=\"color:#4b5563;\"><strong>Subject:</strong> {data.subject}</p>
-                                    <p style=\"color:#4b5563;\"><strong>Tutor:</strong> {data.tutor_name}</p>
+                                    <p style=\"color:#4b5563;\"><strong>Subject:</strong> {resolved_subject}</p>
+                                    <p style=\"color:#4b5563;\"><strong>Tutor:</strong> {resolved_tutor_name}</p>
                                     <p style=\"color:#4b5563;\"><strong>Certificate No:</strong> {certificate_number}</p>
                                     <div style=\"text-align:center;\">
                                         <a href=\"{upload_result['url']}\"
@@ -894,16 +903,16 @@ async def create_rating(
     # Update tutor's average rating in their profile
     try:
         from app.models.tutor import TutorProfile
-        all_ratings = await TutorRating.find(TutorRating.tutor_id == data.tutor_id).to_list()
+        all_ratings = await TutorRating.find(TutorRating.tutor_id == resolved_tutor_id).to_list()
         if all_ratings:
             avg_rating = sum(r.rating for r in all_ratings) / len(all_ratings)
-            tutor_profile = await TutorProfile.get(data.tutor_id)
+            tutor_profile = await TutorProfile.get(resolved_tutor_id)
             if tutor_profile:
                 tutor_profile.rating = round(avg_rating, 1)
                 tutor_profile.total_reviews = len(all_ratings)
                 await tutor_profile.save()
     except Exception:
-        logger.exception("Failed to update tutor rating for tutor %s", data.tutor_id)
+        logger.exception("Failed to update tutor rating for tutor %s", resolved_tutor_id)
 
     return RatingResponse(
         id=str(rating.id),

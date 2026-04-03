@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Optional
 import logging
+import asyncio
 from pydantic import BaseModel
 from app.models.booking import Booking, Review, BookingStatus, SessionType
 from app.models.booking_slot import BookingSlot, SlotStatus
@@ -13,6 +14,9 @@ from app.services.google_meet import google_meet_service
 from app.services.google_calendar_service import tutor_google_calendar_service
 from app.services.notification_service import notification_service
 from app.services.payment_service import payment_service
+from app.services.minio_service import minio_service
+from app.services.email_service import email_service
+from app.services.certificate_service import build_certificate_pdf
 from app.core.config import settings
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -41,6 +45,16 @@ def _build_in_app_meeting_link(booking: Booking) -> str:
     if not base:
         base = "http://localhost:5173"
     return f"{base}/meeting/{booking.id}"
+
+
+def _dispatch_background(coro, context: str) -> None:
+    async def _runner():
+        try:
+            await coro
+        except Exception:
+            logger.exception("Background task failed (%s)", context)
+
+    asyncio.create_task(_runner())
 
 
 def _role_value(role: object) -> str:
@@ -120,6 +134,117 @@ def _is_meeting_link_expired(booking: Booking) -> bool:
     if not expires_at:
         return False
     return datetime.utcnow() > expires_at
+
+
+async def _ensure_completion_certificate_for_booking(booking: Booking) -> Optional[str]:
+    """Create completion certificate once per booking and return URL."""
+    if booking.status != BookingStatus.COMPLETED:
+        return None
+
+    from app.models.material import CompletionCertificate
+
+    existing = await CompletionCertificate.find_one(CompletionCertificate.booking_id == str(booking.id))
+    if existing:
+        return existing.file_url
+
+    student = await User.get(booking.student_id)
+    if not student:
+        return None
+
+    tutor_name = booking.tutor_name or "Tutor"
+    tutor_signature_url = None
+    tutor_signature_bytes = None
+    try:
+        tutor_profile = await TutorProfile.get(booking.tutor_id)
+        if tutor_profile and tutor_profile.signature_image_url:
+            tutor_signature_url = tutor_profile.signature_image_url
+            try:
+                tutor_signature_bytes = minio_service.get_file_bytes(tutor_signature_url)
+            except Exception:
+                tutor_signature_bytes = None
+    except Exception:
+        tutor_signature_url = None
+        tutor_signature_bytes = None
+
+    session_date = booking.scheduled_at
+    certificate_number = f"ZC-{session_date.strftime('%Y%m%d')}-{str(student.id)[-6:].upper()}-{str(booking.id)[-4:].upper()}"
+    pdf_bytes = build_certificate_pdf(
+        student_name=student.full_name or "Student",
+        tutor_name=tutor_name,
+        subject=booking.subject or "Session",
+        session_date=session_date,
+        certificate_number=certificate_number,
+        session_name=booking.session_name,
+        tutor_signature_url=tutor_signature_url,
+        tutor_signature_bytes=tutor_signature_bytes,
+    )
+    file_name = f"completion-certificate-{booking.id}.pdf"
+    upload_result = minio_service.upload_bytes(
+        file_data=pdf_bytes,
+        filename=file_name,
+        folder=f"certificates/{student.id}",
+        content_type="application/pdf",
+    )
+    if not upload_result or not upload_result.get("url"):
+        return None
+
+    certificate = CompletionCertificate(
+        student_id=str(student.id),
+        student_name=student.full_name or "Student",
+        tutor_id=booking.tutor_id,
+        tutor_name=tutor_name,
+        booking_id=str(booking.id),
+        subject=booking.subject or "Session",
+        session_name=booking.session_name,
+        session_date=session_date,
+        certificate_number=certificate_number,
+        file_url=upload_result["url"],
+        file_name=file_name,
+    )
+    await certificate.insert()
+
+    if student.email:
+        _dispatch_background(
+            email_service.send_email(
+                to_email=student.email,
+                subject="Your Session Completion Certificate is Ready",
+                html_content=email_service._base_template(
+                    f"""
+                    <h2 style=\"color:#1f2937; margin:0 0 16px;\">Certificate Ready</h2>
+                    <p style=\"color:#4b5563;\">Hi {student.full_name},</p>
+                    <p style=\"color:#4b5563;\">Your session has been completed and your certificate is now available.</p>
+                    <p style=\"color:#4b5563;\"><strong>Subject:</strong> {booking.subject or 'Session'}</p>
+                    <p style=\"color:#4b5563;\"><strong>Tutor:</strong> {tutor_name}</p>
+                    <p style=\"color:#4b5563;\"><strong>Certificate No:</strong> {certificate_number}</p>
+                    <div style=\"text-align:center;\">
+                        <a href=\"{upload_result['url']}\"
+                           style=\"display:inline-block; background:#2563eb; color:white; text-decoration:none; padding:12px 20px; border-radius:8px;\">
+                           Download Certificate
+                        </a>
+                    </div>
+                    """
+                ),
+                plain_content=f"Your certificate is ready. Download: {upload_result['url']}",
+            ),
+            "booking_completion_certificate_email",
+        )
+
+    return upload_result["url"]
+
+
+async def _auto_complete_if_past(booking: Booking) -> bool:
+    """Mark confirmed booking completed once session end time has passed."""
+    if booking.status != BookingStatus.CONFIRMED:
+        return False
+
+    end_time = _to_utc_naive(booking.scheduled_at) + timedelta(minutes=booking.duration_minutes)
+    if datetime.utcnow() < end_time:
+        return False
+
+    booking.status = BookingStatus.COMPLETED
+    booking.updated_at = datetime.utcnow()
+    await booking.save()
+    return True
 
 
 def _get_booking_slot_collection():
@@ -512,6 +637,14 @@ async def get_my_bookings(current_user: User = Depends(get_current_user)):
         ]}
     ).sort("-created_at").to_list()
 
+    for b in bookings:
+        try:
+            changed = await _auto_complete_if_past(b)
+            if changed or b.status == BookingStatus.COMPLETED:
+                await _ensure_completion_certificate_for_booking(b)
+        except Exception:
+            logger.exception("Failed post-session processing for booking %s", b.id)
+
     return [create_booking_response(b) for b in bookings]
 
 
@@ -636,11 +769,21 @@ async def update_booking(
         raise HTTPException(status_code=403, detail="Not authorized")
 
     update_data = booking_data.model_dump(exclude_unset=True)
+    role_value = _role_value(current_user.role)
+    new_status = update_data.get("status")
+    if new_status == BookingStatus.COMPLETED and not (is_tutor_owner or role_value == "admin"):
+        raise HTTPException(status_code=403, detail="Only tutor/admin can mark session as completed")
+
     for field, value in update_data.items():
         setattr(booking, field, value)
     booking.updated_at = datetime.utcnow()
 
     await booking.save()
+    if booking.status == BookingStatus.COMPLETED:
+        try:
+            await _ensure_completion_certificate_for_booking(booking)
+        except Exception:
+            logger.exception("Failed to generate completion certificate for booking %s", booking.id)
 
     return create_booking_response(booking)
 
@@ -956,6 +1099,14 @@ async def get_tutor_bookings(current_user: User = Depends(get_current_user)):
     bookings = await Booking.find(
         Booking.tutor_id == str(tutor.id)
     ).sort("-scheduled_at").to_list()
+
+    for b in bookings:
+        try:
+            changed = await _auto_complete_if_past(b)
+            if changed or b.status == BookingStatus.COMPLETED:
+                await _ensure_completion_certificate_for_booking(b)
+        except Exception:
+            logger.exception("Failed post-session processing for booking %s", b.id)
 
     return [create_booking_response(b) for b in bookings]
 

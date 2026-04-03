@@ -124,6 +124,8 @@ const StudentDashboard: React.FC = () => {
     try {
       const data = await bookingsAPI.getMyBookings();
       setBookings(data);
+      // Booking fetch may auto-complete past sessions and issue certificates on backend.
+      await fetchMyCertificates();
     } catch (error) {
       console.error('Failed to fetch bookings:', error);
     } finally {
@@ -760,7 +762,7 @@ const StudentDashboard: React.FC = () => {
               {myCertificates.length === 0 ? (
                 <div className="p-10 text-center">
                   <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500">No certificates yet. Submit feedback after completed sessions to receive certificates.</p>
+                  <p className="text-gray-500">No certificates yet. Certificates appear automatically after session completion.</p>
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
