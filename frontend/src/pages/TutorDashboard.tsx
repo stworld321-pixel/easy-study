@@ -10,7 +10,7 @@ import {
   FileText, ClipboardList, MessageSquare, Upload, Download, Trash2, Star
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { tutorsAPI, availabilityAPI, bookingsAPI, withdrawalAPI, materialsAPI, googleCalendarAPI, uploadAPI } from '../services/api';
+import { tutorsAPI, availabilityAPI, bookingsAPI, withdrawalAPI, materialsAPI, uploadAPI } from '../services/api';
 import ImageUpload from '../components/ImageUpload';
 import ChatInbox from '../components/ChatInbox';
 import type { TutorProfile } from '../types';
@@ -44,14 +44,6 @@ const TutorDashboard: React.FC = () => {
       setActiveTab(tabParam as typeof activeTab);
     }
 
-    const calendarStatus = searchParams.get('google_calendar');
-    if (calendarStatus === 'connected') {
-      setMessage({ type: 'success', text: 'Google Calendar connected successfully.' });
-      setTimeout(() => setMessage(null), 3000);
-    } else if (calendarStatus === 'error') {
-      setMessage({ type: 'error', text: 'Google Calendar connection failed. Please try again.' });
-      setTimeout(() => setMessage(null), 4000);
-    }
   }, [searchParams]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -93,9 +85,6 @@ const TutorDashboard: React.FC = () => {
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [blockReason, setBlockReason] = useState('');
-  const [googleCalendarConnected, setGoogleCalendarConnected] = useState(false);
-  const [googleCalendarEmail, setGoogleCalendarEmail] = useState<string | undefined>(undefined);
-  const [googleCalendarLoading, setGoogleCalendarLoading] = useState(false);
   const [jitsiTestLoading, setJitsiTestLoading] = useState(false);
 
   // Bookings state
@@ -147,6 +136,19 @@ const TutorDashboard: React.FC = () => {
   // Feedback state
   const [feedbacks, setFeedbacks] = useState<RatingResponse[]>([]);
 
+  const getMeetingOriginLabel = (origin?: string) => {
+    switch (origin) {
+      case 'lms_embedded':
+        return 'Platform meeting (embedded)';
+      case 'shared_group_event':
+        return 'Shared group event';
+      case 'tutor_manual':
+        return 'Manual link';
+      default:
+        return 'Not specified';
+    }
+  };
+
   useEffect(() => {
     fetchData();
   }, []);
@@ -154,7 +156,6 @@ const TutorDashboard: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'calendar') {
       fetchCalendar();
-      fetchGoogleCalendarStatus();
     }
     if (activeTab === 'earnings') {
       fetchEarnings();
@@ -169,45 +170,6 @@ const TutorDashboard: React.FC = () => {
       fetchFeedbacks();
     }
   }, [currentMonth, activeTab]);
-
-  const fetchGoogleCalendarStatus = async () => {
-    try {
-      const status = await googleCalendarAPI.getStatus();
-      setGoogleCalendarConnected(status.connected);
-      setGoogleCalendarEmail(status.email);
-    } catch (error) {
-      console.error('Failed to fetch Google Calendar status:', error);
-    }
-  };
-
-  const handleConnectGoogleCalendar = async () => {
-    setGoogleCalendarLoading(true);
-    try {
-      const frontendRedirect = `${window.location.origin}/tutor/dashboard?tab=calendar`;
-      const data = await googleCalendarAPI.connect(frontendRedirect);
-      window.location.href = data.auth_url;
-    } catch (error) {
-      setGoogleCalendarLoading(false);
-      setMessage({ type: 'error', text: 'Failed to start Google Calendar connection.' });
-      setTimeout(() => setMessage(null), 3000);
-    }
-  };
-
-  const handleDisconnectGoogleCalendar = async () => {
-    setGoogleCalendarLoading(true);
-    try {
-      await googleCalendarAPI.disconnect();
-      setGoogleCalendarConnected(false);
-      setGoogleCalendarEmail(undefined);
-      setMessage({ type: 'success', text: 'Google Calendar disconnected.' });
-      setTimeout(() => setMessage(null), 3000);
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to disconnect Google Calendar.' });
-      setTimeout(() => setMessage(null), 3000);
-    } finally {
-      setGoogleCalendarLoading(false);
-    }
-  };
 
   const handleStartJitsiTestMeeting = async () => {
     setJitsiTestLoading(true);
@@ -1536,44 +1498,6 @@ const TutorDashboard: React.FC = () => {
 
             {/* Block Date Panel */}
             <div className="space-y-6">
-              {/* Google Calendar Connection */}
-              <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
-                <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-primary-600" />
-                  Google Calendar
-                </h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  Connect your own Google Calendar so confirmed student bookings create Google Meet links automatically.
-                </p>
-
-                <div className={`rounded-xl p-3 mb-4 ${googleCalendarConnected ? 'bg-green-50 text-green-700' : 'bg-gray-50 text-gray-700'}`}>
-                  <div className="text-sm font-medium">
-                    {googleCalendarConnected ? 'Connected' : 'Not connected'}
-                  </div>
-                  {googleCalendarConnected && googleCalendarEmail && (
-                    <div className="text-xs mt-1">{googleCalendarEmail}</div>
-                  )}
-                </div>
-
-                {googleCalendarConnected ? (
-                  <button
-                    onClick={handleDisconnectGoogleCalendar}
-                    disabled={googleCalendarLoading}
-                    className="w-full py-3 bg-gray-100 text-gray-800 font-semibold rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50"
-                  >
-                    {googleCalendarLoading ? 'Disconnecting...' : 'Disconnect Google Calendar'}
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleConnectGoogleCalendar}
-                    disabled={googleCalendarLoading}
-                    className="w-full py-3 bg-primary-600 text-white font-semibold rounded-xl hover:bg-primary-700 transition-colors disabled:opacity-50"
-                  >
-                    {googleCalendarLoading ? 'Connecting...' : 'Connect Google Calendar'}
-                  </button>
-                )}
-              </div>
-
               {/* Jitsi Setup */}
               <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
                 <h3 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
@@ -1845,6 +1769,9 @@ const TutorDashboard: React.FC = () => {
                                   <ExternalLink className="w-4 h-4" />
                                 </a>
                               </div>
+                              <p className="text-xs text-gray-500">
+                                Link source: {getMeetingOriginLabel(booking.meeting_origin)}
+                              </p>
                             </div>
                           ) : booking.meeting_link_expired ? (
                             <div className="flex items-center gap-2 text-sm text-red-700">

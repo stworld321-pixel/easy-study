@@ -25,7 +25,7 @@ const timelineSteps = [
     icon: Search,
     title: 'Find Your Perfect Subject Coach',
     description: 'Browse subject experts, read reviews, watch intro videos, and find your ideal match.',
-    highlights: ['Verified credentials', 'Student reviews', 'Trial lessons'],
+    highlights: ['Verified credentials', 'Student reviews', 'Session support'],
     color: 'bg-purple-500',
     lightColor: 'bg-purple-50',
     textColor: 'text-purple-600',

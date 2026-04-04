@@ -40,6 +40,21 @@ const StudentDashboard: React.FC = () => {
   const [selectedBookingForRating, setSelectedBookingForRating] = useState<BookingResponse | null>(null);
   const [ratingLoading, setRatingLoading] = useState(false);
 
+  const getMeetingOriginLabel = (origin?: string) => {
+    switch (origin) {
+      case 'lms_embedded':
+        return 'Platform meeting (embedded)';
+      case 'tutor_google_calendar':
+        return 'Tutor Google Calendar';
+      case 'shared_group_event':
+        return 'Shared group event';
+      case 'tutor_manual':
+        return 'Tutor manual link';
+      default:
+        return 'Not specified';
+    }
+  };
+
   // Handle tab query parameter from notifications
   useEffect(() => {
     const tabParam = searchParams.get('tab');
@@ -407,6 +422,9 @@ const StudentDashboard: React.FC = () => {
                           Join Session
                         </a>
                       </div>
+                      <p className="mt-2 text-xs text-green-700">
+                        Link source: {getMeetingOriginLabel(booking.meeting_origin)}
+                      </p>
                     </div>
                   )}
 

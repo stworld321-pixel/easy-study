@@ -437,7 +437,7 @@ const TutorProfile: React.FC = () => {
                 className="w-full py-4 bg-gradient-to-r from-primary-600 to-primary-500 text-white font-semibold rounded-xl hover:from-primary-700 hover:to-primary-600 transition-all duration-300 shadow-lg shadow-primary-500/25 flex items-center justify-center gap-2"
               >
                 <Calendar className="w-5 h-5" />
-                Book a Trial Lesson
+                Book a Session
               </button>
 
               <button

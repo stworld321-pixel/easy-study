@@ -245,9 +245,12 @@ export interface BookingResponse {
   price: number;
   currency: string;
   session_name?: string;
+  is_workshop?: boolean;
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
   notes?: string;
   meeting_link?: string;
+  meeting_provider?: string;
+  meeting_origin?: string;
   meeting_link_expires_at?: string;
   meeting_link_expired?: boolean;
   created_at: string;

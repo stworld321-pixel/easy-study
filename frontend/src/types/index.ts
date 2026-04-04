@@ -62,9 +62,13 @@ export interface Booking {
   duration_minutes: number;
   price: number;
   currency: string;
+  session_name?: string;
+  is_workshop?: boolean;
   status: 'pending' | 'confirmed' | 'completed' | 'cancelled';
   notes?: string;
   meeting_link?: string;
+  meeting_provider?: string;
+  meeting_origin?: string;
   created_at: string;
 }
 

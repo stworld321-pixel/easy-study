@@ -851,13 +851,23 @@ async def create_rating(
     certificate_url: Optional[str] = None
     if data.booking_id:
         try:
-            existing_certificate = await CompletionCertificate.find_one(
-                CompletionCertificate.booking_id == data.booking_id
+            is_workshop_booking = bool(
+                booking and (
+                    getattr(booking, "is_workshop", False)
+                    or (booking.session_type == "group" and bool((booking.session_name or "").strip()))
+                )
             )
+            if not is_workshop_booking:
+                existing_certificate = None
+            else:
+                existing_certificate = await CompletionCertificate.find_one(
+                    CompletionCertificate.booking_id == data.booking_id
+                )
+
             if existing_certificate:
                 certificate_doc = existing_certificate
                 certificate_url = existing_certificate.file_url
-            else:
+            elif is_workshop_booking:
                 session_date = booking.scheduled_at if booking else (resolved_session_date or datetime.utcnow())
                 certificate_number = f"ZC-{session_date.strftime('%Y%m%d')}-{str(current_user.id)[-6:].upper()}"
                 tutor_signature_url = None

@@ -22,7 +22,7 @@ from app.schemas.availability import (
 from app.routes.auth import get_current_user
 
 router = APIRouter()
-EFFECTIVE_MIN_NOTICE_HOURS = 1
+EFFECTIVE_MIN_NOTICE_HOURS = 0
 
 async def get_or_create_availability(tutor_id: str) -> TutorAvailability:
     """Get tutor availability or create default one"""
@@ -518,7 +518,7 @@ async def get_tutor_public_calendar(
             status = "open"
             is_slot_available = True
 
-            if slot_dt < min_notice_cutoff:
+            if slot_dt.date() < min_notice_cutoff.date():
                 is_slot_available = False
                 status = "past"
 

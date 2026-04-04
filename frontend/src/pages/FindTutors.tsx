@@ -27,7 +27,7 @@ const countries = [
 const languages = ['English', 'Spanish', 'French', 'German', 'Mandarin', 'Hindi', 'Korean'];
 
 // Enhanced Tutor Card Component
-const TutorCard: React.FC<{ tutor: TutorProfile; index: number; onBookTrial: (tutor: TutorProfile) => void }> = ({ tutor, index, onBookTrial }) => {
+const TutorCard: React.FC<{ tutor: TutorProfile; index: number; onBookSession: (tutor: TutorProfile) => void }> = ({ tutor, index, onBookSession }) => {
   const [isLiked, setIsLiked] = useState(false);
   const { formatPrice } = useCurrency();
 
@@ -202,11 +202,11 @@ const TutorCard: React.FC<{ tutor: TutorProfile; index: number; onBookTrial: (tu
                 <button
                   onClick={(e) => {
                     e.preventDefault();
-                    onBookTrial(tutor);
+                    onBookSession(tutor);
                   }}
                   className="px-6 py-3 border-2 border-primary-200 text-primary-600 font-semibold rounded-xl hover:bg-primary-50 transition-all duration-300 text-center"
                 >
-                  Book Trial
+                  Book Session
                 </button>
               </div>
             </div>
@@ -246,11 +246,11 @@ const FindTutors: React.FC = () => {
   const [selectedTutorForBooking, setSelectedTutorForBooking] = useState<TutorProfile | null>(null);
   const { formatPrice } = useCurrency();
 
-  // Handle book trial - check if user is logged in
-  const handleBookTrial = (tutor: TutorProfile) => {
+  // Handle booking - check if user is logged in
+  const handleBookSession = (tutor: TutorProfile) => {
     if (!user) {
       // Redirect to login if not logged in
-      navigate('/login', { state: { from: `/find-tutors`, message: 'Please login to book a trial session' } });
+      navigate('/login', { state: { from: `/find-tutors`, message: 'Please login to book a session' } });
       return;
     }
     setSelectedTutorForBooking(tutor);
@@ -745,7 +745,7 @@ const FindTutors: React.FC = () => {
                     key={tutor.id}
                     tutor={tutor}
                     index={index}
-                    onBookTrial={handleBookTrial}
+                    onBookSession={handleBookSession}
                   />
                 ))}
               </div>

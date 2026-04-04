@@ -18,6 +18,7 @@ class BookingUpdate(BaseModel):
     notes: Optional[str] = None
     meeting_link: Optional[str] = None
     session_name: Optional[str] = None
+    is_workshop: Optional[bool] = None
 
 class BookingResponse(BaseModel):
     id: str
@@ -34,10 +35,13 @@ class BookingResponse(BaseModel):
     price: float
     currency: str
     session_name: Optional[str] = None
+    is_workshop: bool = False
     status: BookingStatus
     notes: Optional[str] = None
     meeting_link: Optional[str] = None
     meeting_room_key: Optional[str] = None
+    meeting_provider: Optional[str] = None
+    meeting_origin: Optional[str] = None
     meeting_link_expires_at: Optional[datetime] = None
     meeting_link_expired: bool = False
     google_event_id: Optional[str] = None

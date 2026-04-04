@@ -10,8 +10,6 @@ from app.models.tutor import TutorProfile
 from app.models.user import User
 from app.schemas.booking import BookingCreate, BookingUpdate, BookingResponse, ReviewCreate, ReviewResponse
 from app.routes.auth import get_current_user
-from app.services.google_meet import google_meet_service
-from app.services.google_calendar_service import tutor_google_calendar_service
 from app.services.notification_service import notification_service
 from app.services.payment_service import payment_service
 from app.services.minio_service import minio_service
@@ -45,6 +43,13 @@ def _build_in_app_meeting_link(booking: Booking) -> str:
     if not base:
         base = "http://localhost:5173"
     return f"{base}/meeting/{booking.id}"
+
+
+def _is_workshop_booking(booking: Booking) -> bool:
+    # Explicit flag preferred; fallback to non-empty group session name for backward compatibility.
+    if getattr(booking, "is_workshop", False):
+        return True
+    return booking.session_type == SessionType.GROUP and bool((booking.session_name or "").strip())
 
 
 def _dispatch_background(coro, context: str) -> None:
@@ -138,6 +143,8 @@ def _is_meeting_link_expired(booking: Booking) -> bool:
 
 async def _ensure_completion_certificate_for_booking(booking: Booking) -> Optional[str]:
     """Create completion certificate once per booking and return URL."""
+    if not _is_workshop_booking(booking):
+        return None
     if booking.status != BookingStatus.COMPLETED:
         return None
 
@@ -279,10 +286,13 @@ def create_booking_response(b: Booking) -> BookingResponse:
         price=b.price,
         currency=b.currency,
         session_name=b.session_name,
+        is_workshop=bool(getattr(b, "is_workshop", False)),
         status=b.status,
         notes=b.notes,
         meeting_link=safe_meeting_link,
         meeting_room_key=b.meeting_room_key,
+        meeting_provider=b.meeting_provider,
+        meeting_origin=b.meeting_origin,
         meeting_link_expires_at=expires_at,
         meeting_link_expired=expired,
         google_event_id=b.google_event_id,
@@ -493,7 +503,7 @@ async def create_booking(
     availability = await TutorAvailability.find_one(TutorAvailability.tutor_id == booking_data.tutor_id)
     tutor_tz = _safe_zoneinfo(getattr(availability, "timezone", None))
     now_in_tutor_tz = datetime.now(tutor_tz)
-    min_notice_cutoff = now_in_tutor_tz + timedelta(hours=EFFECTIVE_MIN_NOTICE_HOURS)
+    min_notice_cutoff = now_in_tutor_tz
 
     scheduled_at = booking_data.scheduled_at
     if scheduled_at.tzinfo is None:
@@ -501,17 +511,10 @@ async def create_booking(
     else:
         scheduled_at_in_tutor_tz = scheduled_at.astimezone(tutor_tz)
 
-    if scheduled_at_in_tutor_tz < min_notice_cutoff:
+    if scheduled_at_in_tutor_tz.date() < min_notice_cutoff.date():
         raise HTTPException(
             status_code=400,
-            detail="This slot is closed. You can only book at least 1 hour in advance."
-        )
-
-    # Student email is required for Google Meet attendee safety controls.
-    if not current_user.email:
-        raise HTTPException(
-            status_code=400,
-            detail="A valid student email is required to create a booking."
+            detail="This session date is closed for booking."
         )
 
     # Reserve tutor slot atomically (capacity + cross-type conflict guards).
@@ -826,12 +829,14 @@ async def update_session_name(
 
     if not slot_bookings:
         booking.session_name = session_name
+        booking.is_workshop = True
         booking.updated_at = now
         await booking.save()
         return create_booking_response(booking)
 
     for b in slot_bookings:
         b.session_name = session_name
+        b.is_workshop = True
         b.updated_at = now
         await b.save()
 
@@ -845,7 +850,7 @@ async def confirm_booking(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Confirm a booking and generate Google Meet link.
+    Confirm a booking and generate Jitsi session link.
     Only the tutor can confirm a booking.
     """
     booking = await Booking.get(booking_id)
@@ -860,108 +865,13 @@ async def confirm_booking(
     if booking.status == BookingStatus.CONFIRMED:
         raise HTTPException(status_code=400, detail="Booking is already confirmed")
 
-    meeting_provider = (settings.MEETING_PROVIDER or "jitsi").strip().lower()
-
-    # A valid student email is required for Google Meet attendee-based flow.
-    if meeting_provider != "jitsi" and not booking.student_email:
-        raise HTTPException(
-            status_code=400,
-            detail="Booking is missing student email. Please ask the student to update profile email."
-        )
-
-    if meeting_provider == "jitsi":
-        # In-app meeting link; actual Jitsi room is derived deterministically on frontend.
-        booking.status = BookingStatus.CONFIRMED
-        await _ensure_meeting_room_key(booking)
-        booking.meeting_link = _build_in_app_meeting_link(booking)
-        booking.updated_at = datetime.utcnow()
-        await booking.save()
-
-        try:
-            payment = await payment_service.get_payment_by_booking(booking_id)
-            if payment:
-                await payment_service.complete_payment(str(payment.id))
-        except Exception:
-            logger.exception("Failed to complete payment for booking %s", booking_id)
-
-        try:
-            await notification_service.notify_booking_confirmed(
-                student_user_id=booking.student_id,
-                tutor_name=booking.tutor_name or current_user.full_name,
-                tutor_id=str(current_user.id),
-                subject=booking.subject,
-                booking_id=str(booking.id),
-                scheduled_at=booking.scheduled_at,
-                meeting_link=booking.meeting_link
-            )
-        except Exception:
-            logger.exception("Failed to send booking confirmation notification for booking %s", booking.id)
-
-        return create_booking_response(booking)
-
-    meet_result = None
-    session_type_str = "1-on-1" if booking.session_type.value == "private" else "Group"
-
-    # For group sessions, reuse the same event/link for the same tutor+timeslot and add attendee.
-    if booking.session_type == SessionType.GROUP:
-        existing_group_booking = await Booking.find_one({
-            "_id": {"$ne": booking.id},
-            "tutor_id": booking.tutor_id,
-            "session_type": SessionType.GROUP.value,
-            "scheduled_at": booking.scheduled_at,
-            "duration_minutes": booking.duration_minutes,
-            "status": BookingStatus.CONFIRMED.value,
-            "google_event_id": {"$ne": None}
-        })
-
-        if existing_group_booking and existing_group_booking.google_event_id:
-            meet_result = await tutor_google_calendar_service.add_attendee_to_event_for_tutor(
-                tutor=tutor,
-                event_id=existing_group_booking.google_event_id,
-                attendee_email=booking.student_email
-            )
-            # Reuse shared group link/event from the existing confirmed booking.
-            booking.google_event_id = existing_group_booking.google_event_id
-            booking.meeting_link = existing_group_booking.meeting_link or (meet_result or {}).get("meet_link")
-
-    # Private sessions (or first group slot confirmation) create a new event.
-    if not meet_result:
-        meet_result = await tutor_google_calendar_service.create_meet_event_for_tutor(
-            tutor=tutor,
-            title=f"{booking.subject} Tutoring Session - {session_type_str}",
-            description=f"Tutoring session with {booking.tutor_name}\nStudent: {booking.student_name}\nSubject: {booking.subject}\n\nNotes: {booking.notes or 'None'}",
-            start_time=booking.scheduled_at,
-            duration_minutes=booking.duration_minutes,
-            tutor_email=booking.tutor_email,
-            student_email=booking.student_email
-        )
-
-    # If tutor has connected Google Calendar, require automatic meet-link generation.
-    if tutor.google_calendar_connected and (not meet_result or not meet_result.get("meet_link")):
-        raise HTTPException(
-            status_code=502,
-            detail="Unable to generate Google Meet link from connected Google Calendar. Please reconnect Google Calendar and try again."
-        )
-
-    # Update booking with Meet link
+    # Jitsi-only flow: always generate in-app meeting URL.
     booking.status = BookingStatus.CONFIRMED
-    if meet_result and meet_result.get("status") == "pending_meet_link":
-        # Backward-compatible fallback for non-connected tutors
-        fallback_result = google_meet_service.create_meet_event(
-            title=f"{booking.subject} Tutoring Session - {session_type_str}",
-            description=f"Tutoring session with {booking.tutor_name}\nStudent: {booking.student_name}\nSubject: {booking.subject}\n\nNotes: {booking.notes or 'None'}",
-            start_time=booking.scheduled_at,
-            duration_minutes=booking.duration_minutes,
-            tutor_email=booking.tutor_email,
-            student_email=booking.student_email
-        )
-        meet_result = fallback_result if fallback_result else meet_result
-
-    if meet_result:
-        booking.meeting_link = booking.meeting_link or meet_result.get('meet_link')
-        booking.google_event_id = booking.google_event_id or meet_result.get('event_id')
-        if meeting_provider == "jitsi":
-            await _ensure_meeting_room_key(booking)
+    await _ensure_meeting_room_key(booking)
+    booking.meeting_link = _build_in_app_meeting_link(booking)
+    booking.meeting_provider = "jitsi"
+    booking.meeting_origin = "lms_embedded"
+    booking.google_event_id = None
     booking.updated_at = datetime.utcnow()
 
     await booking.save()
@@ -1015,6 +925,8 @@ async def update_meet_link(
         raise HTTPException(status_code=403, detail="Only the tutor can update the Meet link")
 
     booking.meeting_link = data.meeting_link
+    booking.meeting_provider = "manual"
+    booking.meeting_origin = "tutor_manual"
     booking.updated_at = datetime.utcnow()
 
     await booking.save()
@@ -1042,10 +954,6 @@ async def cancel_booking(
 
     if booking.status == BookingStatus.CANCELLED:
         raise HTTPException(status_code=400, detail="Booking is already cancelled")
-
-    # Cancel Google Calendar event if exists
-    if booking.google_event_id:
-        google_meet_service.cancel_event(booking.google_event_id)
 
     booking.status = BookingStatus.CANCELLED
     booking.updated_at = datetime.utcnow()

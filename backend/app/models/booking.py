@@ -26,12 +26,15 @@ class Booking(Document):
     price: float
     currency: str = "INR"
     session_name: Optional[str] = None
+    is_workshop: bool = False
 
     status: BookingStatus = BookingStatus.PENDING
     payment_status: str = "pending"  # pending, paid, refunded
     notes: Optional[str] = None
     meeting_link: Optional[str] = None
     meeting_room_key: Optional[str] = None
+    meeting_provider: Optional[str] = None  # jitsi | google_meet
+    meeting_origin: Optional[str] = None    # lms_embedded | tutor_google_calendar | shared_group_event | tutor_manual
     google_event_id: Optional[str] = None  # Google Calendar event ID
 
     # Denormalized data
