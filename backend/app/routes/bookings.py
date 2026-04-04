@@ -98,6 +98,7 @@ def _build_jitsi_access_token(
 
     now = datetime.utcnow()
     exp = now + timedelta(minutes=max(15, int(settings.JITSI_TOKEN_TTL_MINUTES or 180)))
+    affiliation = "owner" if is_moderator else "member"
     payload = {
         "aud": settings.JITSI_TOKEN_AUDIENCE,
         "iss": settings.JITSI_TOKEN_ISSUER,
@@ -115,8 +116,11 @@ def _build_jitsi_access_token(
                 "name": user.full_name or "User",
                 "email": user.email or "",
                 "moderator": is_moderator,
+                "affiliation": affiliation,
             }
         },
+        "moderator": is_moderator,
+        "affiliation": affiliation,
     }
     return jose_jwt.encode(payload, secret, algorithm="HS256")
 
@@ -696,8 +700,11 @@ async def get_jitsi_test_access(current_user: User = Depends(get_current_user)):
                     "name": current_user.full_name or "Tutor",
                     "email": current_user.email or "",
                     "moderator": True,
+                    "affiliation": "owner",
                 }
             },
+            "moderator": True,
+            "affiliation": "owner",
         }
         token = jose_jwt.encode(payload, settings.JITSI_APP_SECRET, algorithm="HS256")
 

@@ -46,7 +46,7 @@ const Privacy: React.FC = () => {
                 <li>To connect students with tutors and facilitate bookings</li>
                 <li>To process payments and withdrawals</li>
                 <li>To send booking confirmations, reminders, and notifications</li>
-                <li>To generate Google Meet links for online sessions</li>
+                <li>To generate secure live session links for online classes</li>
                 <li>To improve our platform and user experience</li>
                 <li>To respond to customer support requests</li>
               </ul>
@@ -58,7 +58,7 @@ const Privacy: React.FC = () => {
               <ul className="list-disc pl-6 mt-2 space-y-1">
                 <li><strong>Between Students and Tutors:</strong> Relevant profile information is shared to facilitate sessions.</li>
                 <li><strong>Payment Processors:</strong> Payment information is shared with Razorpay for transaction processing.</li>
-                <li><strong>Google Services:</strong> Email addresses may be shared with Google Calendar for creating meeting links.</li>
+                <li><strong>Session Infrastructure:</strong> Session metadata is used to generate secure tutor-student live classroom access.</li>
                 <li><strong>Legal Requirements:</strong> When required by law or to protect our rights.</li>
               </ul>
             </div>
@@ -69,25 +69,13 @@ const Privacy: React.FC = () => {
             </div>
 
             <div>
-              <h2 className="text-2xl font-bold text-gray-900 mb-3">5. Google Data Usage (Google Calendar Integration)</h2>
-              <p>If you are a tutor and choose to connect your Google account, Zeal Catalyst requests limited Google Calendar access only to support tutoring session scheduling.</p>
+              <h2 className="text-2xl font-bold text-gray-900 mb-3">5. Live Session Data Usage</h2>
+              <p>Zeal Catalyst uses session data only to run live classes securely inside the platform.</p>
               <ul className="list-disc pl-6 mt-2 space-y-1">
-                <li><strong>What we access:</strong> We access only the minimum Google Calendar data required to create, update, and delete tutoring session events, generate Google Meet links, and add booked student attendee emails when applicable.</li>
-                <li><strong>What we do not access:</strong> We do not use Google data for advertising, we do not sell Google user data, and we do not access unrelated Google services.</li>
-                <li><strong>How data is used:</strong> Google Calendar data is used only for scheduling and online session management features inside Zeal Catalyst.</li>
-                <li><strong>Revocation:</strong> Tutors can disconnect Google Calendar at any time from the Tutor Dashboard, and can also revoke access from Google Account permissions.</li>
+                <li><strong>What we use:</strong> Booking details such as tutor/student identity, session time, and session type.</li>
+                <li><strong>How it is used:</strong> To generate secure meeting access, enforce role-based controls, and support attendance workflows.</li>
+                <li><strong>What we do not do:</strong> We do not sell session metadata or use it for third-party advertising.</li>
               </ul>
-              <p className="mt-3">
-                Zeal Catalyst&apos;s use of information received from Google APIs complies with the{" "}
-                <a
-                  href="https://developers.google.com/terms/api-services-user-data-policy"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-primary-600 hover:underline"
-                >
-                  Google API Services User Data Policy
-                </a>, including Limited Use requirements.
-              </p>
             </div>
 
             <div>

@@ -490,7 +490,7 @@ Zeal Catalyst Team
             <ul style="color: #4b5563; font-size: 14px; line-height: 1.8; margin: 0 0 24px; padding-left: 20px;">
                 <li>Browse qualified tutors</li>
                 <li>Book tutoring sessions</li>
-                <li>Join video sessions with Google Meet</li>
+                <li>Join secure live sessions inside Zeal Catalyst</li>
                 <li>Leave reviews for your tutors</li>
             </ul>
             """

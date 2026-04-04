@@ -45,7 +45,7 @@ const StudentDashboard: React.FC = () => {
       case 'lms_embedded':
         return 'Platform meeting (embedded)';
       case 'tutor_google_calendar':
-        return 'Tutor Google Calendar';
+        return 'Legacy external link';
       case 'shared_group_event':
         return 'Shared group event';
       case 'tutor_manual':

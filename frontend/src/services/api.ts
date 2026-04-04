@@ -860,11 +860,6 @@ export interface UploadResponse {
   message: string;
 }
 
-export interface GoogleCalendarStatus {
-  connected: boolean;
-  email?: string;
-}
-
 // Upload API
 export const uploadAPI = {
   uploadAvatar: async (file: File): Promise<UploadResponse> => {
@@ -947,26 +942,6 @@ export const withdrawalAPI = {
 
   getWithdrawalStats: async (): Promise<WithdrawalStats> => {
     const response = await api.get('/withdrawals/admin/stats');
-    return response.data;
-  },
-};
-
-// Google Calendar API
-export const googleCalendarAPI = {
-  getStatus: async (): Promise<GoogleCalendarStatus> => {
-    const response = await api.get('/google-calendar/status');
-    return response.data;
-  },
-
-  connect: async (frontendRedirect: string): Promise<{ auth_url: string }> => {
-    const response = await api.get('/google-calendar/connect', {
-      params: { frontend_redirect: frontendRedirect },
-    });
-    return response.data;
-  },
-
-  disconnect: async (): Promise<{ success: boolean; message: string }> => {
-    const response = await api.delete('/google-calendar/disconnect');
     return response.data;
   },
 };

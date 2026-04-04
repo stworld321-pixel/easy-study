@@ -34,7 +34,7 @@ const Terms: React.FC = () => {
 
             <div>
               <h2 className="text-2xl font-bold text-gray-900 mb-3">2. Description of Service</h2>
-              <p>EasyStudy is an online tutoring marketplace that connects students with qualified tutors for personalized learning sessions. We provide the platform for booking, scheduling, and conducting online tutoring sessions via Google Meet.</p>
+              <p>EasyStudy is an online tutoring marketplace that connects students with qualified tutors for personalized learning sessions. We provide the platform for booking, scheduling, and conducting secure online tutoring sessions.</p>
             </div>
 
             <div>
