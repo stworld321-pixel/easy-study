@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Star, MapPin, Verified, GraduationCap, Users, Video,
@@ -16,6 +16,7 @@ import { buildTutorMetaDescription, buildTutorSlug, ensureMetaTag, ensurePropert
 const TutorProfile: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [tutor, setTutor] = useState<TutorProfileType | null>(null);
   const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState<RatingResponse[]>([]);
@@ -23,6 +24,24 @@ const TutorProfile: React.FC = () => {
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const { formatPrice } = useCurrency();
+
+  // Auto-open the booking modal when the user comes back from /login with a
+  // pending booking intent (BookingModal will hydrate from sessionStorage and
+  // resume the payment automatically).
+  useEffect(() => {
+    if (!tutor) return;
+    const params = new URLSearchParams(location.search);
+    if (params.get('resumeBooking') === '1') {
+      setShowBookingModal(true);
+      // Strip the query param so a refresh doesn't keep re-opening it.
+      params.delete('resumeBooking');
+      const cleaned = params.toString();
+      navigate(
+        { pathname: location.pathname, search: cleaned ? `?${cleaned}` : '' },
+        { replace: true },
+      );
+    }
+  }, [tutor, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     const fetchTutor = async () => {

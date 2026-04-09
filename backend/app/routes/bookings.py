@@ -124,12 +124,89 @@ async def _resolve_booking_for_current_user(
     return participant_booking, is_student, is_tutor_owner
 
 
+def _jaas_enabled() -> bool:
+    return bool(
+        (settings.JAAS_APP_ID or "").strip()
+        and (settings.JAAS_KID or "").strip()
+        and (settings.JAAS_PRIVATE_KEY or "").strip()
+    )
+
+
+def _load_jaas_private_key() -> str:
+    """Return the JaaS RSA private key as a PEM string. Accepts either inline PEM
+    (with literal \\n in .env) or a filesystem path to a .pem file."""
+    raw = (settings.JAAS_PRIVATE_KEY or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("-----BEGIN"):
+        return raw.replace("\\n", "\n")
+    # treat as path
+    try:
+        with open(raw, "r", encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return raw.replace("\\n", "\n")
+
+
+def _build_jaas_token(
+    room_name: str,
+    user: User,
+    is_moderator: bool,
+) -> Optional[str]:
+    """Build a JaaS-compatible RS256 JWT. Tutors get moderator=true; everyone else false.
+    The JWT is what makes the staff/tutor the room admin — JaaS enforces it server-side,
+    so first-joiner-becomes-moderator no longer applies."""
+    private_key = _load_jaas_private_key()
+    if not private_key:
+        return None
+
+    now = datetime.utcnow()
+    exp = now + timedelta(minutes=max(15, int(settings.JITSI_TOKEN_TTL_MINUTES or 180)))
+    app_id = settings.JAAS_APP_ID.strip()
+    payload = {
+        "aud": "jitsi",
+        "iss": "chat",
+        "sub": app_id,
+        # JaaS expects the room to be either "*" or "<appId>/<room>". "*" lets a single
+        # token work across rooms; we still scope it via context.user.
+        "room": "*",
+        "iat": int(now.timestamp()),
+        "nbf": int(now.timestamp()) - 30,
+        "exp": int(exp.timestamp()),
+        "context": {
+            "user": {
+                "id": str(user.id),
+                "name": user.full_name or "User",
+                "email": user.email or "",
+                "avatar": "",
+                "moderator": "true" if is_moderator else "false",
+            },
+            "features": {
+                "livestreaming": "true" if is_moderator else "false",
+                "recording": "true" if is_moderator else "false",
+                "transcription": "true" if is_moderator else "false",
+                "outbound-call": "true" if is_moderator else "false",
+            },
+            "room": {
+                "regex": False,
+            },
+        },
+    }
+    headers = {"kid": settings.JAAS_KID.strip(), "typ": "JWT"}
+    return jose_jwt.encode(payload, private_key, algorithm="RS256", headers=headers)
+
+
 def _build_jitsi_access_token(
     room_name: str,
     booking: Booking,
     user: User,
     is_moderator: bool,
 ) -> Optional[str]:
+    # Prefer JaaS (8x8.vc) when configured — it actually enforces moderator via JWT.
+    if _jaas_enabled():
+        return _build_jaas_token(room_name=room_name, user=user, is_moderator=is_moderator)
+
+    # Self-hosted Jitsi fallback (HS256 with prosody token auth).
     secret = (settings.JITSI_APP_SECRET or "").strip()
     if not secret:
         return None
@@ -161,6 +238,17 @@ def _build_jitsi_access_token(
         "affiliation": affiliation,
     }
     return jose_jwt.encode(payload, secret, algorithm="HS256")
+
+
+def _resolve_meeting_domain_and_room(room_key: str) -> tuple[str, str, str]:
+    """Return (domain, room_name_for_client, meeting_url). When JaaS is enabled,
+    the room name is namespaced under the AppID and the domain switches to 8x8.vc."""
+    if _jaas_enabled():
+        domain = (settings.JAAS_DOMAIN or "8x8.vc").strip()
+        room_name = f"{settings.JAAS_APP_ID.strip()}/{room_key}"
+        return domain, room_name, f"https://{domain}/{room_name}"
+    domain = settings.JITSI_DOMAIN
+    return domain, room_key, f"https://{domain}/{room_key}"
 
 
 def _to_utc_naive(dt: datetime) -> datetime:
@@ -846,12 +934,13 @@ async def get_jitsi_test_access(current_user: User = Depends(get_current_user)):
     if not tutor:
         raise HTTPException(status_code=403, detail="Only tutors can use Jitsi test access.")
 
-    room_name = f"zealcatalyst-test-{str(tutor.id)}-{uuid4().hex[:8]}".lower()
-    domain = settings.JITSI_DOMAIN
-    meeting_url = f"https://{domain}/{room_name}"
+    room_key = f"zealcatalyst-test-{str(tutor.id)}-{uuid4().hex[:8]}".lower()
+    domain, room_name, meeting_url = _resolve_meeting_domain_and_room(room_key)
 
     token = None
-    if (settings.JITSI_APP_SECRET or "").strip():
+    if _jaas_enabled():
+        token = _build_jaas_token(room_name=room_name, user=current_user, is_moderator=True)
+    elif (settings.JITSI_APP_SECRET or "").strip():
         now = datetime.utcnow()
         exp = now + timedelta(minutes=max(15, int(settings.JITSI_TOKEN_TTL_MINUTES or 180)))
         payload = {
@@ -913,9 +1002,8 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
             detail=f"Session is not open yet. You can join after {join_available_at.strftime('%d %b %Y, %I:%M %p UTC')}."
         )
 
-    room_name = await _ensure_meeting_room_key(booking)
-    domain = settings.JITSI_DOMAIN
-    meeting_url = f"https://{domain}/{room_name}"
+    room_key = await _ensure_meeting_room_key(booking)
+    domain, room_name, meeting_url = _resolve_meeting_domain_and_room(room_key)
     token = _build_jitsi_access_token(
         room_name=room_name,
         booking=booking,
@@ -1204,6 +1292,19 @@ async def cancel_booking(
 
     booking.status = BookingStatus.CANCELLED
     booking.updated_at = datetime.utcnow()
+    # Track who cancelled — surfaced to the admin Refunds tab.
+    booking.cancelled_at = datetime.utcnow()
+    booking.cancelled_by_id = str(current_user.id)
+    booking.cancelled_by_name = current_user.full_name
+    if is_cancelled_by_student:
+        booking.cancelled_by_role = "student"
+    elif current_user.role == "admin":
+        booking.cancelled_by_role = "admin"
+    else:
+        booking.cancelled_by_role = "tutor"
+    # If the booking was already paid, this cancellation needs an admin refund.
+    if booking.payment_status == "paid" and booking.refund_status is None:
+        booking.refund_status = "pending"
 
     await booking.save()
     await _release_slot(

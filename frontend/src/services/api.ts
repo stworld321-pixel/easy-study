@@ -547,6 +547,30 @@ export interface AdminTutor {
   created_at: string;
 }
 
+export interface RefundItem {
+  booking_id: string;
+  student_id: string;
+  student_name?: string;
+  student_email?: string;
+  tutor_id: string;
+  tutor_name?: string;
+  subject: string;
+  scheduled_at: string;
+  duration_minutes: number;
+  price: number;
+  currency: string;
+  payment_status: string;
+  cancelled_by_role?: string | null;
+  cancelled_by_name?: string | null;
+  cancelled_at?: string | null;
+  refund_status?: string | null;
+  refunded_at?: string | null;
+  refund_reference?: string | null;
+  refund_notes?: string | null;
+  razorpay_payment_id?: string | null;
+  razorpay_order_id?: string | null;
+}
+
 export interface AdminBooking {
   id: string;
   student_id: string;
@@ -706,6 +730,22 @@ export const adminAPI = {
 
   deleteBooking: async (id: string): Promise<void> => {
     await api.delete(`/admin/bookings/${id}`);
+  },
+
+  // Refunds — list cancelled paid bookings the admin still needs to refund.
+  getRefunds: async (
+    refundStatus: 'pending' | 'completed' | 'all' = 'pending',
+  ): Promise<RefundItem[]> => {
+    const response = await api.get('/admin/refunds', { params: { refund_status: refundStatus } });
+    return response.data;
+  },
+
+  markRefunded: async (
+    bookingId: string,
+    payload: { refund_reference?: string; notes?: string } = {},
+  ): Promise<RefundItem> => {
+    const response = await api.post(`/admin/refunds/${bookingId}/mark-refunded`, payload);
+    return response.data;
   },
 
   // Revenue

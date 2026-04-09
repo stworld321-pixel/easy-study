@@ -9,7 +9,20 @@ import type { TutorProfile } from '../types';
 import type { CalendarDay } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
+
+const PENDING_BOOKING_KEY = 'zc:pendingBooking';
+
+interface PendingBookingIntent {
+  tutorId: string;
+  selectedDate: string;
+  selectedTime: string;
+  durationMinutes: number;
+  sessionType: 'private';
+  currency: string;
+  resumePath: string;
+  savedAt: number;
+}
 
 // Razorpay types
 declare global {
@@ -84,6 +97,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const { user } = useAuth();
   const { formatPrice, currency } = useCurrency();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarData, setCalendarData] = useState<CalendarDay[]>([]);
@@ -96,6 +110,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const [step, setStep] = useState<'date' | 'time' | 'confirm'>('date');
   const [booking, setBooking] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [autoBookPending, setAutoBookPending] = useState(false);
 
   // Get the base session price by session type and selected duration
   const getSessionPrice = (): number => {
@@ -114,6 +129,54 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   useEffect(() => {
     fetchCalendar();
   }, [currentMonth, tutor.id, sessionType]);
+
+  // Resume a pending booking after the user finishes logging in.
+  // The intent was saved before redirecting to /login; once the user lands
+  // back on the tutor page (with ?resumeBooking=1) and AuthContext exposes
+  // a user, we hydrate the date/time and auto-trigger handleBooking — so
+  // they don't have to re-pick anything.
+  useEffect(() => {
+    if (!user) return;
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem(PENDING_BOOKING_KEY);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+
+    let intent: PendingBookingIntent | null = null;
+    try {
+      intent = JSON.parse(raw) as PendingBookingIntent;
+    } catch {
+      sessionStorage.removeItem(PENDING_BOOKING_KEY);
+      return;
+    }
+    if (!intent || intent.tutorId !== tutor.id) return;
+    // Expire stale intents after 30 minutes.
+    if (Date.now() - intent.savedAt > 30 * 60 * 1000) {
+      sessionStorage.removeItem(PENDING_BOOKING_KEY);
+      return;
+    }
+
+    // Clear immediately so we don't double-fire on re-renders.
+    sessionStorage.removeItem(PENDING_BOOKING_KEY);
+
+    setSelectedDate(intent.selectedDate);
+    setSelectedTime(intent.selectedTime);
+    setCalendarSessionDuration(intent.durationMinutes);
+    setStep('confirm');
+    setAutoBookPending(true);
+  }, [user, tutor.id]);
+
+  // Once the hydrated state is committed, fire handleBooking exactly once.
+  useEffect(() => {
+    if (!autoBookPending) return;
+    if (!user || !selectedDate || !selectedTime) return;
+    setAutoBookPending(false);
+    void handleBooking();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoBookPending, user, selectedDate, selectedTime]);
 
   useEffect(() => {
     const fetchPaymentConfig = async () => {
@@ -212,18 +275,40 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   };
 
   const handleBooking = async () => {
+    if (!selectedDate || !selectedTime) {
+      setMessage({ type: 'error', text: 'Please select a date and time.' });
+      return;
+    }
+
     if (!user) {
-      navigate('/login');
+      // Save the booking intent so the user can resume after logging in
+      // without re-picking the date/time/duration.
+      const intent: PendingBookingIntent = {
+        tutorId: tutor.id,
+        selectedDate,
+        selectedTime,
+        durationMinutes: calendarSessionDuration || 60,
+        sessionType,
+        currency,
+        resumePath: `${location.pathname}?resumeBooking=1`,
+        savedAt: Date.now(),
+      };
+      try {
+        sessionStorage.setItem(PENDING_BOOKING_KEY, JSON.stringify(intent));
+      } catch {
+        // sessionStorage may be unavailable; fall back to plain redirect.
+      }
+      navigate('/login', {
+        state: {
+          from: intent.resumePath,
+          message: 'Please log in to complete your booking — we saved your selection.',
+        },
+      });
       return;
     }
 
     if (user.role === 'tutor' && user.id === tutor.user_id) {
       setMessage({ type: 'error', text: 'Tutors cannot book their own sessions.' });
-      return;
-    }
-
-    if (!selectedDate || !selectedTime) {
-      setMessage({ type: 'error', text: 'Please select a date and time.' });
       return;
     }
 

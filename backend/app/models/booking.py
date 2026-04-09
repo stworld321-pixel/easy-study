@@ -30,6 +30,20 @@ class Booking(Document):
 
     status: BookingStatus = BookingStatus.PENDING
     payment_status: str = "pending"  # pending, paid, refunded
+
+    # Cancellation tracking — populated whenever a booking is cancelled so the
+    # admin panel can show who cancelled and decide on refunds.
+    cancelled_by_role: Optional[str] = None  # student | tutor | admin
+    cancelled_by_id: Optional[str] = None
+    cancelled_by_name: Optional[str] = None
+    cancelled_at: Optional[datetime] = None
+
+    # Refund workflow (only meaningful when payment_status was "paid" at time of cancel).
+    # None = no refund needed; "pending" = awaiting admin action; "completed" = admin marked refunded.
+    refund_status: Optional[str] = None
+    refunded_at: Optional[datetime] = None
+    refund_reference: Optional[str] = None  # bank/UPI/Razorpay reference id from admin
+    refund_notes: Optional[str] = None
     notes: Optional[str] = None
     meeting_link: Optional[str] = None
     meeting_room_key: Optional[str] = None
