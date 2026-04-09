@@ -12,10 +12,10 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { adminAPI, blogAPI, withdrawalAPI } from '../services/api';
-import type { DashboardStats, AdminUser, AdminTutor, AdminBooking, RevenueStats, PaymentRecord, BlogListItem, BlogPost, WithdrawalResponse, WithdrawalStats } from '../services/api';
+import type { DashboardStats, AdminUser, AdminTutor, AdminBooking, RevenueStats, PaymentRecord, BlogListItem, BlogPost, WithdrawalResponse, WithdrawalStats, RefundItem } from '../services/api';
 import ChatInbox from '../components/ChatInbox';
 
-type TabType = 'overview' | 'users' | 'tutors' | 'bookings' | 'revenue' | 'blogs' | 'withdrawals' | 'messages';
+type TabType = 'overview' | 'users' | 'tutors' | 'bookings' | 'revenue' | 'refunds' | 'blogs' | 'withdrawals' | 'messages';
 type AdminDisplayCurrency = 'INR' | 'USD';
 
 interface BlogFormData {
@@ -61,6 +61,12 @@ const AdminDashboard: React.FC = () => {
   const [blogs, setBlogs] = useState<BlogListItem[]>([]);
   const [withdrawals, setWithdrawals] = useState<WithdrawalResponse[]>([]);
   const [withdrawalStats, setWithdrawalStats] = useState<WithdrawalStats | null>(null);
+  const [refunds, setRefunds] = useState<RefundItem[]>([]);
+  const [refundFilter, setRefundFilter] = useState<'pending' | 'completed' | 'all'>('pending');
+  const [refundLoading, setRefundLoading] = useState(false);
+  const [refundActionId, setRefundActionId] = useState<string | null>(null);
+  const [refundReferenceInput, setRefundReferenceInput] = useState('');
+  const [refundNotesInput, setRefundNotesInput] = useState('');
 
   // Filter states
   const [userFilter, setUserFilter] = useState({ role: '', search: '' });
@@ -267,6 +273,46 @@ const AdminDashboard: React.FC = () => {
       showMessage('success', 'Booking deleted successfully');
     } catch {
       showMessage('error', 'Failed to delete booking');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Refund Actions
+  const loadRefunds = async (statusFilter: 'pending' | 'completed' | 'all' = refundFilter) => {
+    setRefundLoading(true);
+    try {
+      const data = await adminAPI.getRefunds(statusFilter);
+      setRefunds(data);
+    } catch {
+      showMessage('error', 'Failed to load refunds');
+    } finally {
+      setRefundLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'refunds') {
+      void loadRefunds(refundFilter);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, refundFilter]);
+
+  const handleMarkRefunded = async (bookingId: string) => {
+    if (!confirm('Mark this booking as refunded? This will record that the refund has been completed.')) return;
+    setActionLoading(bookingId);
+    try {
+      await adminAPI.markRefunded(bookingId, {
+        refund_reference: refundReferenceInput.trim() || undefined,
+        notes: refundNotesInput.trim() || undefined,
+      });
+      showMessage('success', 'Refund marked as completed');
+      setRefundActionId(null);
+      setRefundReferenceInput('');
+      setRefundNotesInput('');
+      await loadRefunds(refundFilter);
+    } catch {
+      showMessage('error', 'Failed to mark refund as completed');
     } finally {
       setActionLoading(null);
     }
@@ -558,6 +604,7 @@ const AdminDashboard: React.FC = () => {
             { id: 'tutors', label: 'Tutors', icon: GraduationCap },
             { id: 'bookings', label: 'Bookings', icon: Calendar },
             { id: 'revenue', label: 'Revenue', icon: Wallet },
+            { id: 'refunds', label: 'Refunds', icon: ArrowDownCircle },
             { id: 'withdrawals', label: 'Withdrawals', icon: ArrowDownCircle },
             { id: 'blogs', label: 'Blogs', icon: FileText },
             { id: 'messages', label: 'Messages', icon: MessageSquare },
@@ -1210,6 +1257,161 @@ const AdminDashboard: React.FC = () => {
               </table>
               {payments.length === 0 && (
                 <div className="p-12 text-center text-gray-500">No payments yet</div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Refunds Tab */}
+        {activeTab === 'refunds' && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+            <div className="bg-white rounded-2xl p-6 shadow-sm">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">Refunds</h2>
+                  <p className="text-sm text-gray-500">
+                    Paid sessions cancelled by students that need to be refunded.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {(['pending', 'completed', 'all'] as const).map(opt => (
+                    <button
+                      key={opt}
+                      onClick={() => setRefundFilter(opt)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
+                        refundFilter === opt
+                          ? 'bg-primary-600 text-white'
+                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {refundLoading ? (
+                <div className="text-center py-12 text-gray-500">Loading refunds…</div>
+              ) : refunds.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  No {refundFilter === 'all' ? '' : refundFilter} refunds.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {refunds.map(r => {
+                    const isExpanded = refundActionId === r.booking_id;
+                    const cancelledByLabel = r.cancelled_by_role
+                      ? `${r.cancelled_by_role.charAt(0).toUpperCase()}${r.cancelled_by_role.slice(1)}`
+                      : 'Unknown';
+                    return (
+                      <div
+                        key={r.booking_id}
+                        className="border border-gray-200 rounded-xl p-4 hover:border-primary-300 transition-colors"
+                      >
+                        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-2">
+                              <span className="font-semibold text-gray-900">
+                                {r.student_name || 'Unknown student'}
+                              </span>
+                              <span className="text-sm text-gray-500">{r.student_email}</span>
+                              <span
+                                className={`text-xs px-2 py-1 rounded-full font-medium ${
+                                  r.refund_status === 'completed'
+                                    ? 'bg-green-100 text-green-700'
+                                    : 'bg-amber-100 text-amber-700'
+                                }`}
+                              >
+                                {r.refund_status === 'completed' ? 'Refunded' : 'Refund pending'}
+                              </span>
+                              <span className="text-xs px-2 py-1 rounded-full bg-rose-50 text-rose-700">
+                                Cancelled by {cancelledByLabel}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600">
+                              <div>
+                                <span className="text-gray-400">Subject:</span> {r.subject}
+                              </div>
+                              <div>
+                                <span className="text-gray-400">Tutor:</span> {r.tutor_name || '—'}
+                              </div>
+                              <div>
+                                <span className="text-gray-400">Scheduled:</span>{' '}
+                                {new Date(r.scheduled_at).toLocaleString()}
+                              </div>
+                              <div>
+                                <span className="text-gray-400">Cancelled:</span>{' '}
+                                {r.cancelled_at ? new Date(r.cancelled_at).toLocaleString() : '—'}
+                              </div>
+                              <div>
+                                <span className="text-gray-400">Amount:</span>{' '}
+                                <span className="font-semibold text-gray-900">
+                                  {r.currency} {r.price.toFixed(2)}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-gray-400">Razorpay payment:</span>{' '}
+                                <span className="font-mono text-xs">
+                                  {r.razorpay_payment_id || '—'}
+                                </span>
+                              </div>
+                              {r.refund_reference && (
+                                <div className="md:col-span-2">
+                                  <span className="text-gray-400">Refund reference:</span>{' '}
+                                  <span className="font-mono text-xs">{r.refund_reference}</span>
+                                </div>
+                              )}
+                              {r.refund_notes && (
+                                <div className="md:col-span-2">
+                                  <span className="text-gray-400">Notes:</span> {r.refund_notes}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex flex-col gap-2 lg:items-end">
+                            {r.refund_status !== 'completed' && (
+                              <button
+                                onClick={() => {
+                                  setRefundActionId(isExpanded ? null : r.booking_id);
+                                  setRefundReferenceInput('');
+                                  setRefundNotesInput('');
+                                }}
+                                className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-medium"
+                              >
+                                {isExpanded ? 'Cancel' : 'Mark refunded'}
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {isExpanded && r.refund_status !== 'completed' && (
+                          <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
+                            <input
+                              type="text"
+                              value={refundReferenceInput}
+                              onChange={e => setRefundReferenceInput(e.target.value)}
+                              placeholder="Refund reference (Razorpay refund id, UPI txn, etc.) — optional"
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            />
+                            <textarea
+                              value={refundNotesInput}
+                              onChange={e => setRefundNotesInput(e.target.value)}
+                              placeholder="Internal notes (optional)"
+                              rows={2}
+                              className="w-full px-4 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                            />
+                            <button
+                              disabled={actionLoading === r.booking_id}
+                              onClick={() => handleMarkRefunded(r.booking_id)}
+                              className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-300 text-white rounded-lg text-sm font-medium"
+                            >
+                              {actionLoading === r.booking_id ? 'Saving…' : 'Confirm refund completed'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </motion.div>

@@ -12,6 +12,7 @@ from app.models.payment import Payment, PaymentStatus
 from app.models.platform_settings import PlatformSettings
 from app.routes.auth import get_current_user
 from app.services.notification_service import notification_service
+from app.models.notification import NotificationType
 from app.services.payment_service import payment_service
 from pydantic import BaseModel
 
@@ -454,6 +455,164 @@ async def update_booking_status(
     await booking.save()
 
     return {"message": f"Booking status updated to {status}"}
+
+
+# --- Refund Management ---
+class RefundItem(BaseModel):
+    booking_id: str
+    student_id: str
+    student_name: Optional[str] = None
+    student_email: Optional[str] = None
+    tutor_id: str
+    tutor_name: Optional[str] = None
+    subject: str
+    scheduled_at: datetime
+    duration_minutes: int
+    price: float
+    currency: str
+    payment_status: str
+    cancelled_by_role: Optional[str] = None
+    cancelled_by_name: Optional[str] = None
+    cancelled_at: Optional[datetime] = None
+    refund_status: Optional[str] = None
+    refunded_at: Optional[datetime] = None
+    refund_reference: Optional[str] = None
+    refund_notes: Optional[str] = None
+    razorpay_payment_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+
+
+class MarkRefundedRequest(BaseModel):
+    refund_reference: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@router.get("/refunds", response_model=List[RefundItem])
+async def list_refunds(
+    refund_status: str = Query("pending", regex="^(pending|completed|all)$"),
+    admin: User = Depends(get_admin_user),
+):
+    """List paid bookings that were cancelled and need (or have received) a refund.
+
+    Default returns refund_status="pending" — i.e. cancelled paid bookings the
+    admin still needs to process. Use ?refund_status=completed to see history,
+    or ?refund_status=all for both.
+    """
+    query: dict = {"status": BookingStatus.CANCELLED.value}
+    if refund_status == "pending":
+        query["refund_status"] = "pending"
+    elif refund_status == "completed":
+        query["refund_status"] = "completed"
+    else:
+        query["refund_status"] = {"$in": ["pending", "completed"]}
+
+    bookings = await Booking.find(query).sort("-cancelled_at").to_list()
+
+    items: List[RefundItem] = []
+    for b in bookings:
+        student = await User.get(b.student_id)
+        tutor_profile = await TutorProfile.get(b.tutor_id)
+        tutor_user = await User.get(tutor_profile.user_id) if tutor_profile else None
+        payment = await payment_service.get_payment_by_booking(str(b.id))
+
+        items.append(RefundItem(
+            booking_id=str(b.id),
+            student_id=str(b.student_id),
+            student_name=(student.full_name if student else b.student_name),
+            student_email=(student.email if student else b.student_email),
+            tutor_id=str(b.tutor_id),
+            tutor_name=(tutor_user.full_name if tutor_user else b.tutor_name),
+            subject=b.subject,
+            scheduled_at=b.scheduled_at,
+            duration_minutes=b.duration_minutes,
+            price=b.price,
+            currency=b.currency,
+            payment_status=b.payment_status,
+            cancelled_by_role=b.cancelled_by_role,
+            cancelled_by_name=b.cancelled_by_name,
+            cancelled_at=b.cancelled_at,
+            refund_status=b.refund_status,
+            refunded_at=b.refunded_at,
+            refund_reference=b.refund_reference,
+            refund_notes=b.refund_notes,
+            razorpay_payment_id=getattr(payment, "razorpay_payment_id", None) if payment else None,
+            razorpay_order_id=getattr(payment, "razorpay_order_id", None) if payment else None,
+        ))
+    return items
+
+
+@router.post("/refunds/{booking_id}/mark-refunded", response_model=RefundItem)
+async def mark_refund_completed(
+    booking_id: str,
+    payload: MarkRefundedRequest,
+    admin: User = Depends(get_admin_user),
+):
+    """Admin marks a cancelled paid booking as refunded after processing the refund externally."""
+    booking = await Booking.get(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking.status != BookingStatus.CANCELLED:
+        raise HTTPException(status_code=400, detail="Only cancelled bookings can be marked as refunded")
+    if booking.refund_status == "completed":
+        raise HTTPException(status_code=400, detail="Refund is already marked as completed")
+    if booking.payment_status not in ("paid", "refunded"):
+        raise HTTPException(status_code=400, detail="This booking was not paid; no refund needed")
+
+    booking.refund_status = "completed"
+    booking.refunded_at = datetime.utcnow()
+    booking.payment_status = "refunded"
+    if payload.refund_reference:
+        booking.refund_reference = payload.refund_reference.strip()
+    if payload.notes:
+        booking.refund_notes = payload.notes.strip()
+    booking.updated_at = datetime.utcnow()
+    await booking.save()
+
+    # Best-effort notify the student that the refund has been processed.
+    try:
+        await notification_service.create_notification(
+            user_id=str(booking.student_id),
+            notification_type=NotificationType.SYSTEM,
+            title="Refund processed",
+            message=(
+                f"Your refund of {booking.currency} {booking.price:.2f} for the "
+                f"{booking.subject} session has been processed."
+                + (f" Reference: {booking.refund_reference}." if booking.refund_reference else "")
+            ),
+            related_id=str(booking.id),
+        )
+    except Exception:
+        # Notification helper signature may differ; don't block the refund flow.
+        pass
+
+    student = await User.get(booking.student_id)
+    tutor_profile = await TutorProfile.get(booking.tutor_id)
+    tutor_user = await User.get(tutor_profile.user_id) if tutor_profile else None
+    payment = await payment_service.get_payment_by_booking(str(booking.id))
+
+    return RefundItem(
+        booking_id=str(booking.id),
+        student_id=str(booking.student_id),
+        student_name=(student.full_name if student else booking.student_name),
+        student_email=(student.email if student else booking.student_email),
+        tutor_id=str(booking.tutor_id),
+        tutor_name=(tutor_user.full_name if tutor_user else booking.tutor_name),
+        subject=booking.subject,
+        scheduled_at=booking.scheduled_at,
+        duration_minutes=booking.duration_minutes,
+        price=booking.price,
+        currency=booking.currency,
+        payment_status=booking.payment_status,
+        cancelled_by_role=booking.cancelled_by_role,
+        cancelled_by_name=booking.cancelled_by_name,
+        cancelled_at=booking.cancelled_at,
+        refund_status=booking.refund_status,
+        refunded_at=booking.refunded_at,
+        refund_reference=booking.refund_reference,
+        refund_notes=booking.refund_notes,
+        razorpay_payment_id=getattr(payment, "razorpay_payment_id", None) if payment else None,
+        razorpay_order_id=getattr(payment, "razorpay_order_id", None) if payment else None,
+    )
 
 
 @router.delete("/bookings/{booking_id}")

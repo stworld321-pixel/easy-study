@@ -81,6 +81,13 @@ class Settings(BaseSettings):
     JITSI_TOKEN_TTL_MINUTES: int = 180
     JITSI_REQUIRE_JWT: bool = False
 
+    # Jitsi as a Service (JaaS / 8x8.vc) — used when set; takes precedence over self-hosted HS256.
+    # Sign up at https://jaas.8x8.vc, create an API key, then put values here.
+    JAAS_APP_ID: str = ""           # The "AppID" / tenant from JaaS dashboard (vpaas-magic-cookie-...)
+    JAAS_KID: str = ""              # The Key ID shown next to the API key
+    JAAS_PRIVATE_KEY: str = ""      # PEM-encoded RSA private key (use \n in .env or a file path)
+    JAAS_DOMAIN: str = "8x8.vc"
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def parse_debug_value(cls, value):
