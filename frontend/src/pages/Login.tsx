@@ -3,11 +3,22 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, Info } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { authAPI } from '../services/api';
+import { firebaseGoogleAuth } from '../services/firebaseAuth';
 
 interface LocationState {
   from?: string;
   message?: string;
 }
+
+const GoogleIcon = () => (
+  <svg className="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true">
+    <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.5 3.9-5.5 3.9-3.3 0-6-2.7-6-6s2.7-6 6-6c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.3 14.6 2.4 12 2.4 6.8 2.4 2.6 6.6 2.6 11.8S6.8 21.2 12 21.2c6.9 0 9.2-4.8 9.2-7.3 0-.5-.1-.9-.1-1.3H12z" />
+    <path fill="#34A853" d="M3.8 7.9l3.2 2.4C7.8 8.7 9.7 7.4 12 7.4c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.3 14.6 2.4 12 2.4 8.3 2.4 5.2 4.5 3.8 7.9z" />
+    <path fill="#FBBC05" d="M12 21.2c2.5 0 4.6-.8 6.2-2.3l-3-2.5c-.8.6-1.8 1.1-3.2 1.1-3.9 0-5.2-2.6-5.5-3.9L3.3 16c1.4 3.3 4.5 5.2 8.7 5.2z" />
+    <path fill="#4285F4" d="M21.2 13.9c0-.5-.1-.9-.1-1.3H12v3.9h5.5c-.2 1.1-.9 2-1.8 2.6l3 2.5c1.8-1.7 2.5-4.1 2.5-7.7z" />
+  </svg>
+);
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -16,7 +27,7 @@ const Login: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const { login, user } = useAuth();
+  const { login, loginWithToken, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const locationState = location.state as LocationState | null;
@@ -54,6 +65,22 @@ const Login: React.FC = () => {
       const axiosError = err as { response?: { data?: { detail?: string } } };
       const errorMessage = axiosError?.response?.data?.detail || 'Invalid email or password';
       setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const { idToken } = await firebaseGoogleAuth.signIn();
+      const response = await authAPI.googleAuth(idToken);
+      loginWithToken(response.access_token, response.user);
+    } catch (err: unknown) {
+      console.error('Google login error:', err);
+      const axiosError = err as { response?: { data?: { detail?: string } } };
+      setError(axiosError?.response?.data?.detail || 'Google sign in failed. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -170,6 +197,25 @@ const Login: React.FC = () => {
               )}
             </button>
           </form>
+
+          {firebaseGoogleAuth.isConfigured && (
+            <>
+              <div className="my-6 flex items-center">
+                <div className="flex-1 border-t border-gray-200" />
+                <span className="px-3 text-xs text-gray-500 uppercase tracking-wide">or</span>
+                <div className="flex-1 border-t border-gray-200" />
+              </div>
+              <button
+                type="button"
+                onClick={handleGoogleLogin}
+                disabled={loading}
+                className="w-full border border-gray-300 hover:bg-gray-50 rounded-xl py-3 px-4 font-medium text-gray-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                <GoogleIcon />
+                Continue with Google
+              </button>
+            </>
+          )}
 
           {/* Sign Up Link */}
           <p className="mt-8 text-center text-gray-600">

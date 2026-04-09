@@ -160,6 +160,45 @@ async def upload_tutor_image(
     }
 
 
+@router.post("/workshop-image")
+async def upload_workshop_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Upload workshop thumbnail image.
+    Does not update tutor profile/avatar.
+    """
+    if current_user.role != "tutor":
+        raise HTTPException(status_code=403, detail="Only tutors can upload workshop images")
+
+    # Ensure tutor profile exists
+    tutor_profile = await TutorProfile.find_one(TutorProfile.user_id == str(current_user.id))
+    if not tutor_profile:
+        raise HTTPException(status_code=404, detail="Tutor profile not found")
+
+    file_data = await file.read()
+    if len(file_data) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    result = minio_service.upload_image(
+        file_data=file_data,
+        filename=file.filename or "workshop.jpg",
+        folder="workshops"
+    )
+
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to upload image")
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return {
+        "success": True,
+        "url": result["url"],
+        "message": "Workshop image uploaded successfully"
+    }
+
+
 @router.post("/tutor-signature")
 async def upload_tutor_signature(
     file: UploadFile = File(...),

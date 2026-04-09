@@ -13,8 +13,22 @@ from app.models.booking import Booking
 from app.models.tutor import TutorProfile
 from app.models.user import User
 from app.routes.auth import get_current_user
+from app.services.email_service import email_service
+from app.core.config import settings
+import asyncio
+import logging
 
 router = APIRouter(prefix="/withdrawals", tags=["Withdrawals"])
+logger = logging.getLogger(__name__)
+
+
+def _dispatch_background(coro, context: str) -> None:
+    async def _runner():
+        try:
+            await coro
+        except Exception:
+            logger.exception("Background task failed (%s)", context)
+    asyncio.create_task(_runner())
 
 
 # ============================================
@@ -241,6 +255,46 @@ async def request_withdrawal(
     )
 
     await withdrawal.insert()
+
+    # Tutor: withdrawal request acknowledgement
+    if current_user.email:
+        _dispatch_background(
+            email_service.send_withdrawal_request_received_email(
+                to_email=current_user.email,
+                tutor_name=current_user.full_name or "Tutor",
+                amount=withdrawal.amount,
+                currency=withdrawal.currency,
+                payment_method=withdrawal.payment_method.value,
+            ),
+            "withdrawal_request_received_email"
+        )
+
+    # Admin(s): new payout request alert
+    try:
+        admin_users = await User.find({"role": "admin", "is_active": True}).to_list()
+        for admin in admin_users:
+            if not admin.email:
+                continue
+            _dispatch_background(
+                email_service.send_email(
+                    to_email=admin.email,
+                    subject="New Tutor Withdrawal Request",
+                    html_content=email_service._base_template(
+                        f"""
+                        <h2 style=\"color:#1f2937; margin:0 0 16px;\">New Withdrawal Request</h2>
+                        <p style=\"color:#4b5563;\">Tutor <strong>{current_user.full_name}</strong> requested payout.</p>
+                        <p style=\"color:#4b5563;\"><strong>Amount:</strong> {withdrawal.currency} {withdrawal.amount:.2f}</p>
+                        <p style=\"color:#4b5563;\"><strong>Method:</strong> {withdrawal.payment_method.value}</p>
+                        <a href=\"{settings.FRONTEND_URL}/admin/dashboard?tab=withdrawals\" style=\"color:#2563eb;\">Open Admin Dashboard</a>
+                        """
+                    ),
+                    plain_content=f"New withdrawal request from {current_user.full_name}: {withdrawal.currency} {withdrawal.amount:.2f}",
+                ),
+                "withdrawal_request_admin_alert"
+            )
+    except Exception:
+        logger.exception("Failed to dispatch admin withdrawal alerts for request %s", withdrawal.id)
+
     return withdrawal_to_response(withdrawal)
 
 
@@ -312,6 +366,22 @@ async def update_withdrawal(
         withdrawal.transaction_id = update.transaction_id
 
     await withdrawal.save()
+
+    # Tutor: status update email after admin action (approved/rejected/completed)
+    if withdrawal.tutor_email:
+        _dispatch_background(
+            email_service.send_withdrawal_status_email(
+                to_email=withdrawal.tutor_email,
+                tutor_name=withdrawal.tutor_name or "Tutor",
+                amount=withdrawal.amount,
+                currency=withdrawal.currency,
+                status=withdrawal.status.value if hasattr(withdrawal.status, "value") else str(withdrawal.status),
+                admin_notes=withdrawal.admin_notes,
+                transaction_id=withdrawal.transaction_id,
+            ),
+            "withdrawal_status_email"
+        )
+
     return withdrawal_to_response(withdrawal)
 
 

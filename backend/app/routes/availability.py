@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Query
 from typing import List
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, tzinfo
 import calendar
 from zoneinfo import ZoneInfo
 from app.models.user import User
@@ -89,12 +89,15 @@ def _slot_end(start_time: str, session_duration: int) -> str:
 def _to_session_type_value(raw: object) -> str:
     return getattr(raw, "value", str(raw))
 
-def _get_tutor_timezone(availability: TutorAvailability) -> ZoneInfo:
+def _get_tutor_timezone(availability: TutorAvailability) -> tzinfo:
     timezone_name = (availability.timezone or "UTC").strip() or "UTC"
     try:
         return ZoneInfo(timezone_name)
     except Exception:
-        return ZoneInfo("UTC")
+        try:
+            return ZoneInfo("UTC")
+        except Exception:
+            return timezone.utc
 
 
 def _validate_internal_no_overlap(schedule_dict: dict, label: str) -> None:
@@ -569,14 +572,15 @@ async def get_tutor_public_calendar(
             })
 
         total_slots = len(normalized_day_slots)
-        is_available = total_slots > 0 and not is_blocked and availability.is_accepting_students
+        is_available = available_count > 0 and not is_blocked and availability.is_accepting_students
 
         days.append(CalendarDayStatus(
             date=date_str,
             is_available=is_available,
             is_blocked=is_blocked,
             reason=None,  # Don't expose reasons to students
-            slots_count=total_slots if is_available else 0,
+            # Expose only bookable slot count to the student UI.
+            slots_count=available_count if is_available else 0,
             time_slots=normalized_day_slots
         ))
 

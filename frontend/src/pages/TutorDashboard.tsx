@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -10,11 +10,11 @@ import {
   FileText, ClipboardList, MessageSquare, Upload, Download, Trash2, Star
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { tutorsAPI, availabilityAPI, bookingsAPI, withdrawalAPI, materialsAPI, uploadAPI } from '../services/api';
+import { tutorsAPI, availabilityAPI, bookingsAPI, withdrawalAPI, materialsAPI, uploadAPI, workshopsAPI, paymentsAPI } from '../services/api';
 import ImageUpload from '../components/ImageUpload';
 import ChatInbox from '../components/ChatInbox';
 import type { TutorProfile } from '../types';
-import type { AvailabilitySettings, WeeklySchedule, TimeSlot, CalendarDay, BlockedDate, BookingResponse, TutorStats, WithdrawalResponse, MaterialResponse, AssignmentResponse, RatingResponse, BookedStudent } from '../services/api';
+import type { AvailabilitySettings, WeeklySchedule, TimeSlot, CalendarDay, BlockedDate, BookingResponse, TutorStats, WithdrawalResponse, MaterialResponse, AssignmentResponse, RatingResponse, BookedStudent, WorkshopResponse, WorkshopCreateInput, TutorPaymentListItem } from '../services/api';
 
 const DAYS_OF_WEEK = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -35,12 +35,12 @@ const LANGUAGES_LIST = ['English', 'Spanish', 'French', 'German', 'Mandarin', 'H
 const TutorDashboard: React.FC = () => {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<'profile' | 'availability' | 'calendar' | 'bookings' | 'earnings' | 'materials' | 'assignments' | 'feedback' | 'messages'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'availability' | 'calendar' | 'bookings' | 'workshops' | 'earnings' | 'materials' | 'assignments' | 'feedback' | 'messages'>('profile');
 
   // Handle tab query parameter from notifications
   useEffect(() => {
     const tabParam = searchParams.get('tab');
-    if (tabParam && ['profile', 'availability', 'calendar', 'bookings', 'earnings', 'materials', 'assignments', 'feedback', 'messages'].includes(tabParam)) {
+    if (tabParam && ['profile', 'availability', 'calendar', 'bookings', 'workshops', 'earnings', 'materials', 'assignments', 'feedback', 'messages'].includes(tabParam)) {
       setActiveTab(tabParam as typeof activeTab);
     }
 
@@ -71,13 +71,7 @@ const TutorDashboard: React.FC = () => {
     monday: [], tuesday: [], wednesday: [], thursday: [],
     friday: [], saturday: [], sunday: []
   });
-  const [groupWeeklySchedule, setGroupWeeklySchedule] = useState<WeeklySchedule>({
-    monday: [], tuesday: [], wednesday: [], thursday: [],
-    friday: [], saturday: [], sunday: []
-  });
   const [sessionDuration, setSessionDuration] = useState<number>(60);
-  const [scheduleMode, setScheduleMode] = useState<'private' | 'group'>('private');
-  const [groupSessionCapacity, setGroupSessionCapacity] = useState<number>(10);
 
   // Calendar state
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -89,12 +83,10 @@ const TutorDashboard: React.FC = () => {
 
   // Bookings state
   const [bookings, setBookings] = useState<BookingResponse[]>([]);
-  const [bookingView, setBookingView] = useState<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled'>('upcoming');
+  const [bookingView, setBookingView] = useState<'upcoming' | 'private' | 'finished' | 'cancelled'>('upcoming');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [editingMeetLink, setEditingMeetLink] = useState<string | null>(null);
   const [meetLinkInput, setMeetLinkInput] = useState('');
-  const [editingSessionName, setEditingSessionName] = useState<string | null>(null);
-  const [sessionNameInput, setSessionNameInput] = useState('');
 
   // Custom subject input state
   const [customSubjectInput, setCustomSubjectInput] = useState('');
@@ -102,6 +94,11 @@ const TutorDashboard: React.FC = () => {
   // Earnings & Withdrawal state
   const [tutorStats, setTutorStats] = useState<TutorStats | null>(null);
   const [withdrawals, setWithdrawals] = useState<WithdrawalResponse[]>([]);
+  const [tutorPayments, setTutorPayments] = useState<TutorPaymentListItem[]>([]);
+  const [paymentFilterFrom, setPaymentFilterFrom] = useState('');
+  const [paymentFilterTo, setPaymentFilterTo] = useState('');
+  const [paymentFilterStatus, setPaymentFilterStatus] = useState<'all' | 'completed' | 'pending' | 'failed' | 'refunded'>('all');
+  const [paymentFilterStudent, setPaymentFilterStudent] = useState('');
   const [withdrawalAmount, setWithdrawalAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'bank_transfer' | 'upi' | 'paypal'>('bank_transfer');
   const [paymentDetails, setPaymentDetails] = useState('');
@@ -135,6 +132,23 @@ const TutorDashboard: React.FC = () => {
 
   // Feedback state
   const [feedbacks, setFeedbacks] = useState<RatingResponse[]>([]);
+  const [workshops, setWorkshops] = useState<WorkshopResponse[]>([]);
+  const [showWorkshopForm, setShowWorkshopForm] = useState(false);
+  const [editingWorkshopId, setEditingWorkshopId] = useState<string | null>(null);
+  const [workshopSaving, setWorkshopSaving] = useState(false);
+  const [workshopModuleInput, setWorkshopModuleInput] = useState('');
+  const [workshopForm, setWorkshopForm] = useState<WorkshopCreateInput>({
+    title: '',
+    description: '',
+    modules: [],
+    thumbnail_url: '',
+    amount: 0,
+    currency: 'INR',
+    scheduled_at: '',
+    duration_minutes: 60,
+    max_participants: 50,
+    is_active: true,
+  });
 
   const getMeetingOriginLabel = (origin?: string) => {
     switch (origin) {
@@ -169,7 +183,19 @@ const TutorDashboard: React.FC = () => {
     if (activeTab === 'feedback') {
       fetchFeedbacks();
     }
+    if (activeTab === 'workshops') {
+      fetchWorkshops();
+    }
   }, [currentMonth, activeTab]);
+
+  const fetchWorkshops = async () => {
+    try {
+      const data = await workshopsAPI.getMyWorkshops();
+      setWorkshops(data);
+    } catch (error) {
+      console.error('Failed to fetch workshops:', error);
+    }
+  };
 
   const handleStartJitsiTestMeeting = async () => {
     setJitsiTestLoading(true);
@@ -225,14 +251,99 @@ const TutorDashboard: React.FC = () => {
 
   const fetchEarnings = async () => {
     try {
-      const [statsData, withdrawalsData] = await Promise.all([
+      const [statsData, withdrawalsData, tutorPaymentsData] = await Promise.all([
         withdrawalAPI.getStats(),
-        withdrawalAPI.getMyWithdrawals()
+        withdrawalAPI.getMyWithdrawals(),
+        paymentsAPI.getTutorPayments().catch(() => []),
       ]);
       setTutorStats(statsData);
       setWithdrawals(withdrawalsData);
+      setTutorPayments(tutorPaymentsData);
     } catch (error) {
       console.error('Failed to fetch earnings:', error);
+    }
+  };
+
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const startOfWeek = (d: Date) => {
+    const day = d.getDay();
+    const diff = day === 0 ? 6 : day - 1; // monday start
+    const date = new Date(d);
+    date.setDate(d.getDate() - diff);
+    return startOfDay(date);
+  };
+  const startOfMonth = (d: Date) => new Date(d.getFullYear(), d.getMonth(), 1);
+
+  const earningsAnalysis = useMemo(() => {
+    const now = new Date();
+    const sod = startOfDay(now);
+    const sow = startOfWeek(now);
+    const som = startOfMonth(now);
+
+    const completedPayments = tutorPayments.filter((p) => p.status === 'completed');
+    const completedSessions = bookings.filter((b) => b.status === 'completed');
+
+    const todayEarnings = completedPayments
+      .filter((p) => new Date(p.created_at) >= sod)
+      .reduce((sum, p) => sum + p.tutor_earnings, 0);
+    const weeklyEarnings = completedPayments
+      .filter((p) => new Date(p.created_at) >= sow)
+      .reduce((sum, p) => sum + p.tutor_earnings, 0);
+    const monthlyEarnings = completedPayments
+      .filter((p) => new Date(p.created_at) >= som)
+      .reduce((sum, p) => sum + p.tutor_earnings, 0);
+
+    const todaySessions = completedSessions.filter((b) => new Date(b.scheduled_at) >= sod).length;
+    const weeklySessions = completedSessions.filter((b) => new Date(b.scheduled_at) >= sow).length;
+    const monthlySessions = completedSessions.filter((b) => new Date(b.scheduled_at) >= som).length;
+
+    return {
+      todayEarnings,
+      weeklyEarnings,
+      monthlyEarnings,
+      todaySessions,
+      weeklySessions,
+      monthlySessions,
+    };
+  }, [tutorPayments, bookings]);
+
+  const filteredTutorPayments = useMemo(() => {
+    return tutorPayments.filter((p) => {
+      const paymentDate = new Date(p.scheduled_at || p.created_at);
+      if (paymentFilterFrom) {
+        const from = new Date(`${paymentFilterFrom}T00:00:00`);
+        if (paymentDate < from) return false;
+      }
+      if (paymentFilterTo) {
+        const to = new Date(`${paymentFilterTo}T23:59:59`);
+        if (paymentDate > to) return false;
+      }
+      if (paymentFilterStatus !== 'all' && p.status !== paymentFilterStatus) {
+        return false;
+      }
+      if (paymentFilterStudent.trim()) {
+        const q = paymentFilterStudent.trim().toLowerCase();
+        if (!(p.student_name || '').toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [tutorPayments, paymentFilterFrom, paymentFilterTo, paymentFilterStatus, paymentFilterStudent]);
+
+  const handleDownloadTutorInvoice = async (paymentId: string) => {
+    try {
+      const blob = await paymentsAPI.downloadTutorInvoice(paymentId);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tutor-invoice-${paymentId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Failed to download invoice:', error);
+      setMessage({ type: 'error', text: 'Failed to download invoice' });
+      setTimeout(() => setMessage(null), 3000);
     }
   };
 
@@ -292,12 +403,7 @@ const TutorDashboard: React.FC = () => {
       if (availabilityData) {
         setAvailability(availabilityData);
         setPrivateWeeklySchedule(availabilityData.private_weekly_schedule || availabilityData.weekly_schedule);
-        setGroupWeeklySchedule(availabilityData.group_weekly_schedule || {
-          monday: [], tuesday: [], wednesday: [], thursday: [],
-          friday: [], saturday: [], sunday: []
-        });
         setSessionDuration(availabilityData.session_duration || 60);
-        setGroupSessionCapacity(availabilityData.group_session_capacity || 10);
       }
 
       setBlockedDates(blockedData.blocked_dates);
@@ -333,7 +439,11 @@ const TutorDashboard: React.FC = () => {
   const handleSaveProfile = async () => {
     setSaving(true);
     try {
-      await tutorsAPI.updateProfile(profile);
+      await tutorsAPI.updateProfile({
+        ...profile,
+        offers_group: false,
+        group_hourly_rate: 0,
+      });
       setMessage({ type: 'success', text: 'Profile saved successfully!' });
       setTimeout(() => setMessage(null), 3000);
     } catch (error) {
@@ -346,11 +456,9 @@ const TutorDashboard: React.FC = () => {
   const handleSaveAvailability = async () => {
     setSaving(true);
     try {
-      const scheduleToSave = scheduleMode === 'private' ? privateWeeklySchedule : groupWeeklySchedule;
-      await availabilityAPI.updateSchedule(scheduleToSave, scheduleMode);
+      await availabilityAPI.updateSchedule(privateWeeklySchedule, 'private');
       await availabilityAPI.updateSettings({
         session_duration: Math.max(15, Number(sessionDuration) || 60),
-        group_session_capacity: Math.max(1, Number(groupSessionCapacity) || 1),
       } as Partial<AvailabilitySettings>);
       setMessage({ type: 'success', text: 'Availability saved successfully!' });
       setTimeout(() => setMessage(null), 3000);
@@ -365,42 +473,21 @@ const TutorDashboard: React.FC = () => {
 
   const addTimeSlot = (day: keyof WeeklySchedule) => {
     const newSlot: TimeSlot = { start_time: '09:00', end_time: '17:00' };
-    if (scheduleMode === 'private') {
-      setPrivateWeeklySchedule(prev => ({
-        ...prev,
-        [day]: [...prev[day], newSlot]
-      }));
-      return;
-    }
-    setGroupWeeklySchedule(prev => ({
+    setPrivateWeeklySchedule(prev => ({
       ...prev,
       [day]: [...prev[day], newSlot]
     }));
   };
 
   const removeTimeSlot = (day: keyof WeeklySchedule, index: number) => {
-    if (scheduleMode === 'private') {
-      setPrivateWeeklySchedule(prev => ({
-        ...prev,
-        [day]: prev[day].filter((_, i) => i !== index)
-      }));
-      return;
-    }
-    setGroupWeeklySchedule(prev => ({
+    setPrivateWeeklySchedule(prev => ({
       ...prev,
       [day]: prev[day].filter((_, i) => i !== index)
     }));
   };
 
   const updateTimeSlot = (day: keyof WeeklySchedule, index: number, field: 'start_time' | 'end_time', value: string) => {
-    if (scheduleMode === 'private') {
-      setPrivateWeeklySchedule(prev => ({
-        ...prev,
-        [day]: prev[day].map((slot, i) => i === index ? { ...slot, [field]: value } : slot)
-      }));
-      return;
-    }
-    setGroupWeeklySchedule(prev => ({
+    setPrivateWeeklySchedule(prev => ({
       ...prev,
       [day]: prev[day].map((slot, i) => i === index ? { ...slot, [field]: value } : slot)
     }));
@@ -501,40 +588,112 @@ const TutorDashboard: React.FC = () => {
     }
   };
 
-  const handleUpdateSessionName = async (bookingId: string) => {
-    if (!sessionNameInput.trim()) {
-      setMessage({ type: 'error', text: 'Session name is required' });
+  const resetWorkshopForm = () => {
+    setWorkshopForm({
+      title: '',
+      description: '',
+      modules: [],
+      thumbnail_url: '',
+      amount: 0,
+      currency: (profile.currency || 'INR').toUpperCase(),
+      scheduled_at: '',
+      duration_minutes: 60,
+      max_participants: 50,
+      is_active: true,
+    });
+    setEditingWorkshopId(null);
+    setWorkshopModuleInput('');
+    setShowWorkshopForm(false);
+  };
+
+  const openCreateWorkshop = () => {
+    resetWorkshopForm();
+    setShowWorkshopForm(true);
+  };
+
+  const openEditWorkshop = (workshop: WorkshopResponse) => {
+    setWorkshopForm({
+      title: workshop.title,
+      description: workshop.description || '',
+      modules: workshop.modules || [],
+      thumbnail_url: workshop.thumbnail_url || '',
+      amount: workshop.amount,
+      currency: workshop.currency || 'INR',
+      scheduled_at: workshop.scheduled_at ? workshop.scheduled_at.slice(0, 16) : '',
+      duration_minutes: workshop.duration_minutes,
+      max_participants: workshop.max_participants,
+      is_active: workshop.is_active,
+    });
+    setEditingWorkshopId(workshop.id);
+    setWorkshopModuleInput('');
+    setShowWorkshopForm(true);
+  };
+
+  const addWorkshopModule = () => {
+    const value = workshopModuleInput.trim();
+    if (!value) return;
+    if (workshopForm.modules.includes(value)) {
+      setWorkshopModuleInput('');
+      return;
+    }
+    setWorkshopForm(prev => ({ ...prev, modules: [...prev.modules, value] }));
+    setWorkshopModuleInput('');
+  };
+
+  const removeWorkshopModule = (module: string) => {
+    setWorkshopForm(prev => ({ ...prev, modules: prev.modules.filter(m => m !== module) }));
+  };
+
+  const handleSaveWorkshop = async () => {
+    if (!workshopForm.title.trim()) {
+      setMessage({ type: 'error', text: 'Workshop title is required.' });
       setTimeout(() => setMessage(null), 2500);
       return;
     }
-    setActionLoading(bookingId);
-    try {
-      const updated = await bookingsAPI.updateSessionName(bookingId, sessionNameInput.trim());
-      setBookings(prev =>
-        prev.map(b =>
-          b.tutor_id === updated.tutor_id &&
-          b.session_type === 'group' &&
-          b.scheduled_at === updated.scheduled_at &&
-          b.duration_minutes === updated.duration_minutes
-            ? { ...b, session_name: updated.session_name }
-            : b
-        )
-      );
-      setEditingSessionName(null);
-      setSessionNameInput('');
-      setMessage({ type: 'success', text: 'Group session name updated.' });
+    if (!workshopForm.scheduled_at) {
+      setMessage({ type: 'error', text: 'Workshop date and time are required.' });
       setTimeout(() => setMessage(null), 2500);
-    } catch (error: unknown) {
-      const err = error as { response?: { data?: { detail?: string } } };
-      setMessage({ type: 'error', text: err.response?.data?.detail || 'Failed to update session name' });
+      return;
+    }
+
+    setWorkshopSaving(true);
+    try {
+      const payload: WorkshopCreateInput = {
+        ...workshopForm,
+        title: workshopForm.title.trim(),
+        description: workshopForm.description?.trim() || '',
+        currency: (workshopForm.currency || profile.currency || 'INR').toUpperCase(),
+        scheduled_at: new Date(workshopForm.scheduled_at).toISOString(),
+      };
+      if (editingWorkshopId) {
+        await workshopsAPI.updateWorkshop(editingWorkshopId, payload);
+      } else {
+        await workshopsAPI.createWorkshop(payload);
+      }
+      await fetchWorkshops();
+      resetWorkshopForm();
+      setMessage({ type: 'success', text: `Workshop ${editingWorkshopId ? 'updated' : 'created'} successfully.` });
+      setTimeout(() => setMessage(null), 3000);
+    } catch {
+      setMessage({ type: 'error', text: `Failed to ${editingWorkshopId ? 'update' : 'create'} workshop.` });
       setTimeout(() => setMessage(null), 3000);
     } finally {
-      setActionLoading(null);
+      setWorkshopSaving(false);
     }
   };
 
-
-
+  const handleDeleteWorkshop = async (id: string) => {
+    if (!confirm('Delete this workshop?')) return;
+    try {
+      await workshopsAPI.deleteWorkshop(id);
+      setWorkshops(prev => prev.filter(w => w.id !== id));
+      setMessage({ type: 'success', text: 'Workshop deleted.' });
+      setTimeout(() => setMessage(null), 2500);
+    } catch {
+      setMessage({ type: 'error', text: 'Failed to delete workshop.' });
+      setTimeout(() => setMessage(null), 2500);
+    }
+  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -643,20 +802,18 @@ const TutorDashboard: React.FC = () => {
   const sortedBookings = [...bookings].sort(
     (a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
   );
-  const bookingViews: Record<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled', BookingResponse[]> = {
+  const bookingViews: Record<'upcoming' | 'private' | 'finished' | 'cancelled', BookingResponse[]> = {
     upcoming: sortedBookings.filter(
       b => new Date(b.scheduled_at) >= now && (b.status === 'pending' || b.status === 'confirmed')
     ),
     private: sortedBookings.filter(b => b.session_type === 'private' && b.status !== 'cancelled'),
-    group: sortedBookings.filter(b => b.session_type === 'group' && b.status !== 'cancelled'),
     finished: sortedBookings.filter(b => b.status === 'completed' || (new Date(b.scheduled_at) < now && b.status === 'confirmed')),
     cancelled: sortedBookings.filter(b => b.status === 'cancelled'),
   };
   const currentBookings = bookingViews[bookingView];
-  const bookingViewLabels: Record<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled', string> = {
+  const bookingViewLabels: Record<'upcoming' | 'private' | 'finished' | 'cancelled', string> = {
     upcoming: 'Upcoming Sessions',
     private: 'Private Sessions',
-    group: 'Group Sessions',
     finished: 'Finished Sessions',
     cancelled: 'Cancelled Sessions',
   };
@@ -666,6 +823,7 @@ const TutorDashboard: React.FC = () => {
     { id: 'availability', label: 'Schedule', icon: Clock },
     { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'bookings', label: 'Session Bookings', icon: Video },
+    { id: 'workshops', label: 'Workshops', icon: Briefcase },
     { id: 'materials', label: 'Materials', icon: FileText },
     { id: 'assignments', label: 'Assignments', icon: ClipboardList },
     { id: 'feedback', label: 'Feedback', icon: MessageSquare },
@@ -953,7 +1111,7 @@ const TutorDashboard: React.FC = () => {
                     />
                   </div>
 
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="grid md:grid-cols-1 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         <GraduationCap className="w-4 h-4 inline mr-1" />
@@ -983,7 +1141,7 @@ const TutorDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="grid md:grid-cols-1 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         <MapPin className="w-4 h-4 inline mr-1" />
@@ -1033,21 +1191,11 @@ const TutorDashboard: React.FC = () => {
                       <Video className="w-4 h-4 text-gray-500" />
                       <span className="text-sm font-medium">1-on-1 Sessions</span>
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={profile.offers_group}
-                        onChange={(e) => setProfile(prev => ({ ...prev, offers_group: e.target.checked }))}
-                        className="w-5 h-5 rounded text-primary-600 focus:ring-primary-500"
-                      />
-                      <Users className="w-4 h-4 text-gray-500" />
-                      <span className="text-sm font-medium">Group Sessions</span>
-                    </label>
-                  </div>
+                    </div>
                 </div>
 
                 {/* Pricing Grid */}
-                <div className="grid md:grid-cols-2 gap-4">
+                <div className="grid md:grid-cols-1 gap-4">
                   {/* 1-on-1 Rate */}
                   <div className={`p-4 rounded-xl border-2 transition-all ${profile.offers_private ? 'border-primary-200 bg-primary-50/50' : 'border-gray-200 bg-gray-50 opacity-60'}`}>
                     <div className="flex items-center gap-2 mb-3">
@@ -1069,27 +1217,6 @@ const TutorDashboard: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Group Rate */}
-                  <div className={`p-4 rounded-xl border-2 transition-all ${profile.offers_group ? 'border-secondary-200 bg-secondary-50/50' : 'border-gray-200 bg-gray-50 opacity-60'}`}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Users className="w-5 h-5 text-secondary-600" />
-                      <label className="text-sm font-semibold text-gray-900">Group Session Rate</label>
-                    </div>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">₹</span>
-                      <input
-                        type="number"
-                        value={profile.group_hourly_rate || 0}
-                        onChange={(e) => setProfile(prev => ({ ...prev, group_hourly_rate: parseFloat(e.target.value) || 0 }))}
-                        min="0"
-                        disabled={!profile.offers_group}
-                        placeholder="Enter rate per hour"
-                        className="w-full pl-8 pr-16 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-secondary-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">/hour</span>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-2">Rate per student in group sessions</p>
-                  </div>
                 </div>
               </div>
 
@@ -1259,7 +1386,7 @@ const TutorDashboard: React.FC = () => {
             </h2>
 
             <p className="text-gray-600 mb-8">
-              Define separate weekly schedules for private and group sessions.
+              Define your private session weekly schedule.
             </p>
 
             <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
@@ -1281,44 +1408,6 @@ const TutorDashboard: React.FC = () => {
               </p>
             </div>
 
-            <div className="mb-6 grid sm:grid-cols-2 gap-3">
-              <button
-                onClick={() => setScheduleMode('private')}
-                className={`px-4 py-3 rounded-xl border font-medium transition-colors ${
-                  scheduleMode === 'private'
-                    ? 'bg-primary-50 border-primary-300 text-primary-700'
-                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Private Session Schedule
-              </button>
-              <button
-                onClick={() => setScheduleMode('group')}
-                className={`px-4 py-3 rounded-xl border font-medium transition-colors ${
-                  scheduleMode === 'group'
-                    ? 'bg-primary-50 border-primary-300 text-primary-700'
-                    : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Group Session Schedule
-              </button>
-            </div>
-
-            {scheduleMode === 'group' && (
-              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Group Session Capacity (students per slot)
-                </label>
-                <input
-                  type="number"
-                  min={1}
-                  value={groupSessionCapacity}
-                  onChange={(e) => setGroupSessionCapacity(Math.max(1, Number(e.target.value) || 1))}
-                  className="w-full sm:w-56 px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                />
-              </div>
-            )}
-
             <div className="space-y-4">
               {DAYS_OF_WEEK.map((day, index) => (
                 <div key={day} className="flex items-start gap-4 p-4 bg-gray-50 rounded-xl">
@@ -1327,10 +1416,10 @@ const TutorDashboard: React.FC = () => {
                   </div>
 
                   <div className="flex-1 space-y-2">
-                    {(scheduleMode === 'private' ? privateWeeklySchedule[day] : groupWeeklySchedule[day]).length === 0 ? (
+                    {privateWeeklySchedule[day].length === 0 ? (
                       <div className="text-gray-400 italic py-2">No availability set</div>
                     ) : (
-                      (scheduleMode === 'private' ? privateWeeklySchedule[day] : groupWeeklySchedule[day]).map((slot, slotIndex) => (
+                      privateWeeklySchedule[day].map((slot, slotIndex) => (
                         <div key={slotIndex} className="flex items-center gap-3">
                           <input
                             type="time"
@@ -1377,7 +1466,7 @@ const TutorDashboard: React.FC = () => {
               ) : (
                 <Save className="w-5 h-5" />
               )}
-              Save {scheduleMode === 'private' ? 'Private' : 'Group'} Schedule
+              Save Private Schedule
             </button>
           </motion.div>
         )}
@@ -1617,7 +1706,6 @@ const TutorDashboard: React.FC = () => {
                 {[
                   { key: 'upcoming', label: 'Upcoming' },
                   { key: 'private', label: 'Private' },
-                  { key: 'group', label: 'Group' },
                   { key: 'finished', label: 'Finished' },
                   { key: 'cancelled', label: 'Cancelled' },
                 ].map(view => (
@@ -1660,11 +1748,6 @@ const TutorDashboard: React.FC = () => {
                           <div className="text-sm text-gray-600 mt-1">
                             {booking.subject}
                           </div>
-                          {booking.session_type === 'group' && booking.session_name && (
-                            <div className="text-xs text-primary-700 mt-1">
-                              Session: {booking.session_name}
-                            </div>
-                          )}
                         </div>
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${
                           booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
@@ -1696,46 +1779,6 @@ const TutorDashboard: React.FC = () => {
                       <div className="mt-2 text-sm font-medium text-gray-700">
                         {booking.currency === 'INR' ? 'Rs ' : '$'}{booking.price.toFixed(2)} | {booking.duration_minutes} min | {booking.session_type}
                       </div>
-
-                      {booking.session_type === 'group' && (
-                        <div className="mt-2">
-                          {editingSessionName === booking.id ? (
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                              <input
-                                type="text"
-                                value={sessionNameInput}
-                                onChange={(e) => setSessionNameInput(e.target.value)}
-                                placeholder="Enter group session name"
-                                className="flex-1 px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                                maxLength={120}
-                              />
-                              <button
-                                onClick={() => handleUpdateSessionName(booking.id)}
-                                disabled={actionLoading === booking.id}
-                                className="px-3 py-2 bg-primary-600 text-white text-sm rounded-lg hover:bg-primary-700 disabled:opacity-50"
-                              >
-                                {actionLoading === booking.id ? '...' : 'Save Name'}
-                              </button>
-                              <button
-                                onClick={() => { setEditingSessionName(null); setSessionNameInput(''); }}
-                                className="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300"
-                              >
-                                Cancel
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => {
-                                setEditingSessionName(booking.id);
-                                setSessionNameInput(booking.session_name || booking.subject);
-                              }}
-                              className="text-sm text-primary-600 hover:text-primary-700"
-                            >
-                              {booking.session_name ? 'Edit Session Name' : 'Add Session Name'}
-                            </button>
-                          )}
-                        </div>
-                      )}
 
                       {booking.status === 'confirmed' && (
                         <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200">
@@ -1853,6 +1896,220 @@ const TutorDashboard: React.FC = () => {
                             Cancel Booking
                           </button>
                         )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Workshops Tab */}
+        {activeTab === 'workshops' && (
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="space-y-6"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">Workshops</h2>
+                <p className="text-gray-600">Create and manage workshop listings with modules, schedule, thumbnail, and pricing.</p>
+              </div>
+              <button
+                onClick={openCreateWorkshop}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 transition-colors"
+              >
+                <Plus className="w-5 h-5" />
+                Create Workshop
+              </button>
+            </div>
+
+            {showWorkshopForm && (
+              <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm space-y-4">
+                <h3 className="text-lg font-bold text-gray-900">
+                  {editingWorkshopId ? 'Edit Workshop' : 'Create Workshop'}
+                </h3>
+
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Workshop Title</label>
+                    <input
+                      type="text"
+                      value={workshopForm.title}
+                      onChange={(e) => setWorkshopForm(prev => ({ ...prev, title: e.target.value }))}
+                      placeholder="Enter workshop title"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Date & Time</label>
+                    <input
+                      type="datetime-local"
+                      value={workshopForm.scheduled_at}
+                      onChange={(e) => setWorkshopForm(prev => ({ ...prev, scheduled_at: e.target.value }))}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                  <textarea
+                    value={workshopForm.description || ''}
+                    onChange={(e) => setWorkshopForm(prev => ({ ...prev, description: e.target.value }))}
+                    rows={4}
+                    placeholder="Enter workshop description"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 resize-none"
+                  />
+                </div>
+
+                <div className="grid md:grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Amount</label>
+                    <input
+                      type="number"
+                      min={0}
+                      value={workshopForm.amount}
+                      onChange={(e) => setWorkshopForm(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
+                      placeholder="0"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Currency</label>
+                    <input
+                      type="text"
+                      value={workshopForm.currency}
+                      onChange={(e) => setWorkshopForm(prev => ({ ...prev, currency: e.target.value.toUpperCase() }))}
+                      placeholder="INR"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Duration (Minutes)</label>
+                    <input
+                      type="number"
+                      min={15}
+                      value={workshopForm.duration_minutes}
+                      onChange={(e) => setWorkshopForm(prev => ({ ...prev, duration_minutes: Math.max(15, parseInt(e.target.value) || 60) }))}
+                      placeholder="60"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Max Participants</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={workshopForm.max_participants}
+                      onChange={(e) => setWorkshopForm(prev => ({ ...prev, max_participants: Math.max(1, parseInt(e.target.value) || 1) }))}
+                      placeholder="50"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Modules</label>
+                  <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={workshopModuleInput}
+                    onChange={(e) => setWorkshopModuleInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addWorkshopModule();
+                      }
+                    }}
+                    placeholder="Add module and press Enter"
+                    className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                  <button
+                    onClick={addWorkshopModule}
+                    className="px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200"
+                  >
+                    Add Module
+                  </button>
+                  </div>
+                </div>
+                {workshopForm.modules.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {workshopForm.modules.map(module => (
+                      <span key={module} className="inline-flex items-center gap-1 px-3 py-1 bg-primary-100 text-primary-700 rounded-full text-sm">
+                        {module}
+                        <button onClick={() => removeWorkshopModule(module)} className="hover:text-primary-900">
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Workshop Thumbnail</p>
+                  <ImageUpload
+                    type="workshop"
+                    currentImage={workshopForm.thumbnail_url}
+                    onUploadSuccess={(url) => setWorkshopForm(prev => ({ ...prev, thumbnail_url: url }))}
+                  />
+                </div>
+
+                <div className="flex items-center gap-3 pt-2">
+                  <button
+                    onClick={handleSaveWorkshop}
+                    disabled={workshopSaving}
+                    className="px-4 py-2 bg-primary-600 text-white rounded-xl hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {workshopSaving ? 'Saving...' : (editingWorkshopId ? 'Update Workshop' : 'Create Workshop')}
+                  </button>
+                  <button
+                    onClick={resetWorkshopForm}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+              {workshops.length === 0 ? (
+                <p className="text-gray-500 text-sm">No workshops yet.</p>
+              ) : (
+                <div className="space-y-4">
+                  {workshops.map((workshop) => (
+                    <div key={workshop.id} className="p-4 rounded-xl border border-gray-200 bg-gray-50">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h4 className="font-semibold text-gray-900">{workshop.title}</h4>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {new Date(workshop.scheduled_at).toLocaleString()} | {workshop.duration_minutes} mins | {workshop.max_participants} seats
+                          </p>
+                          <p className="text-sm text-gray-700 mt-1">{workshop.currency} {workshop.amount.toFixed(2)}</p>
+                          {workshop.modules?.length > 0 && (
+                            <p className="text-xs text-gray-600 mt-1">Modules: {workshop.modules.join(', ')}</p>
+                          )}
+                        </div>
+                        {workshop.thumbnail_url && (
+                          <img src={workshop.thumbnail_url} alt={workshop.title} className="w-20 h-20 rounded-lg object-cover border border-gray-200" />
+                        )}
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          onClick={() => openEditWorkshop(workshop)}
+                          className="px-3 py-1.5 text-sm bg-primary-100 text-primary-700 rounded-lg hover:bg-primary-200"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeleteWorkshop(workshop.id)}
+                          className="px-3 py-1.5 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -2844,6 +3101,157 @@ const TutorDashboard: React.FC = () => {
               </div>
             </div>
 
+            {/* Today / Weekly / Monthly Analysis */}
+            {tutorStats && (
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+                <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-primary-600" />
+                  Weekly & Monthly Analysis
+                </h3>
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="p-4 rounded-xl border border-gray-200 bg-gray-50">
+                    <p className="text-sm text-gray-500 mb-1">Today</p>
+                    <p className="text-lg font-bold text-green-700">
+                      {tutorStats.currency} {earningsAnalysis.todayEarnings.toFixed(2)}
+                    </p>
+                    <p className="text-sm text-gray-600 mt-1">{earningsAnalysis.todaySessions} sessions</p>
+                  </div>
+                  <div className="p-4 rounded-xl border border-gray-200 bg-gray-50">
+                    <p className="text-sm text-gray-500 mb-1">This Week</p>
+                    <p className="text-lg font-bold text-blue-700">
+                      {tutorStats.currency} {earningsAnalysis.weeklyEarnings.toFixed(2)}
+                    </p>
+                    <p className="text-sm text-gray-600 mt-1">{earningsAnalysis.weeklySessions} sessions</p>
+                  </div>
+                  <div className="p-4 rounded-xl border border-gray-200 bg-gray-50">
+                    <p className="text-sm text-gray-500 mb-1">This Month</p>
+                    <p className="text-lg font-bold text-purple-700">
+                      {tutorStats.currency} {earningsAnalysis.monthlyEarnings.toFixed(2)}
+                    </p>
+                    <p className="text-sm text-gray-600 mt-1">{earningsAnalysis.monthlySessions} sessions</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Payment List */}
+            <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+              <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-primary-600" />
+                Payment List
+              </h3>
+
+              <div className="grid md:grid-cols-4 gap-3 mb-4">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">From Date</label>
+                  <input
+                    type="date"
+                    value={paymentFilterFrom}
+                    onChange={(e) => setPaymentFilterFrom(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">To Date</label>
+                  <input
+                    type="date"
+                    value={paymentFilterTo}
+                    onChange={(e) => setPaymentFilterTo(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Status</label>
+                  <select
+                    value={paymentFilterStatus}
+                    onChange={(e) => setPaymentFilterStatus(e.target.value as 'all' | 'completed' | 'pending' | 'failed' | 'refunded')}
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
+                  >
+                    <option value="all">All</option>
+                    <option value="completed">Completed</option>
+                    <option value="pending">Pending</option>
+                    <option value="failed">Failed</option>
+                    <option value="refunded">Refunded</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Student Name</label>
+                  <input
+                    type="text"
+                    value={paymentFilterStudent}
+                    onChange={(e) => setPaymentFilterStudent(e.target.value)}
+                    placeholder="Search student..."
+                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg bg-white"
+                  />
+                </div>
+              </div>
+
+              {filteredTutorPayments.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                  <p>No payments found for selected filters</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Date</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Time</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Student Name</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Amount</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Status</th>
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-gray-600">Invoice</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {filteredTutorPayments.map((p) => {
+                        const schedule = p.scheduled_at ? new Date(p.scheduled_at) : null;
+                        return (
+                          <tr key={p.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-4 text-sm text-gray-700">
+                              {schedule ? schedule.toLocaleDateString() : '-'}
+                            </td>
+                            <td className="px-4 py-4 text-sm text-gray-700">
+                              {schedule ? schedule.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}
+                            </td>
+                            <td className="px-4 py-4 text-sm font-medium text-gray-800">
+                              {p.student_name || 'Student'}
+                            </td>
+                            <td className="px-4 py-4 text-sm text-gray-700">
+                              {p.currency} {p.tutor_earnings.toFixed(2)}
+                            </td>
+                            <td className="px-4 py-4">
+                              <span className={`px-3 py-1 text-xs font-medium rounded-full ${
+                                p.status === 'completed'
+                                  ? 'bg-green-100 text-green-700'
+                                  : p.status === 'pending'
+                                  ? 'bg-yellow-100 text-yellow-700'
+                                  : p.status === 'failed'
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-gray-100 text-gray-700'
+                              }`}>
+                                {p.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4">
+                              <button
+                                onClick={() => handleDownloadTutorInvoice(p.id)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 hover:bg-gray-100 text-gray-700"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                Download
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
             {/* Withdrawal History */}
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
               <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
@@ -2915,4 +3323,5 @@ const TutorDashboard: React.FC = () => {
 };
 
 export default TutorDashboard;
+
 

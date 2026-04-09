@@ -55,6 +55,47 @@ const StudentDashboard: React.FC = () => {
     }
   };
 
+  const getBookingWindow = (booking: BookingResponse) => {
+    const startMs = new Date(booking.scheduled_at).getTime();
+    const durationMinutes = booking.duration_minutes || 60;
+    const endMs = startMs + durationMinutes * 60_000;
+    const joinAvailableAtMs = startMs - 15 * 60_000;
+    const certificateReadyAtMs = endMs + 30 * 60_000;
+    return { startMs, endMs, joinAvailableAtMs, certificateReadyAtMs };
+  };
+
+  const getWorkshopBookingState = (booking: BookingResponse) => {
+    const { startMs, endMs, joinAvailableAtMs, certificateReadyAtMs } = getBookingWindow(booking);
+    const nowMs = Date.now();
+    const certificateExists = myCertificates.some(certificate => certificate.booking_id === booking.id);
+
+    if (booking.status === 'cancelled') {
+      return { label: 'Cancelled', className: 'bg-red-100 text-red-700' };
+    }
+
+    if (certificateExists) {
+      return { label: 'Certificate ready', className: 'bg-emerald-100 text-emerald-700' };
+    }
+
+    if (nowMs < joinAvailableAtMs) {
+      return { label: 'Not open yet', className: 'bg-gray-100 text-gray-700' };
+    }
+
+    if (nowMs >= startMs && nowMs <= endMs) {
+      return { label: 'Live now', className: 'bg-green-100 text-green-700' };
+    }
+
+    if (nowMs > endMs && nowMs < certificateReadyAtMs) {
+      return { label: 'Feedback pending', className: 'bg-yellow-100 text-yellow-700' };
+    }
+
+    if (nowMs >= certificateReadyAtMs) {
+      return { label: 'Certificate ready', className: 'bg-emerald-100 text-emerald-700' };
+    }
+
+    return { label: booking.status.charAt(0).toUpperCase() + booking.status.slice(1), className: 'bg-gray-100 text-gray-700' };
+  };
+
   // Handle tab query parameter from notifications
   useEffect(() => {
     const tabParam = searchParams.get('tab');
@@ -329,6 +370,20 @@ const StudentDashboard: React.FC = () => {
             </div>
           ) : (
             (activeTab === 'upcoming' ? upcomingBookings : pastBookings).map(booking => (
+              (() => {
+                const bookingState = booking.is_workshop
+                  ? getWorkshopBookingState(booking)
+                  : {
+                      label: booking.status.charAt(0).toUpperCase() + booking.status.slice(1),
+                      className:
+                        booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
+                        booking.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
+                        booking.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                        booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
+                        'bg-gray-100 text-gray-700',
+                    };
+
+                return (
               <div
                 key={booking.id}
                 className={`bg-white rounded-2xl border shadow-sm overflow-hidden ${
@@ -350,14 +405,8 @@ const StudentDashboard: React.FC = () => {
                         <p className="text-gray-600">{booking.subject}</p>
                       </div>
                     </div>
-                    <span className={`px-3 py-1 text-sm font-medium rounded-full ${
-                      booking.status === 'confirmed' ? 'bg-green-100 text-green-700' :
-                      booking.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                      booking.status === 'cancelled' ? 'bg-red-100 text-red-700' :
-                      booking.status === 'completed' ? 'bg-blue-100 text-blue-700' :
-                      'bg-gray-100 text-gray-700'
-                    }`}>
-                      {booking.status.charAt(0).toUpperCase() + booking.status.slice(1)}
+                    <span className={`px-3 py-1 text-sm font-medium rounded-full ${bookingState.className}`}>
+                      {bookingState.label}
                     </span>
                   </div>
 
@@ -476,6 +525,8 @@ const StudentDashboard: React.FC = () => {
                   )}
                 </div>
               </div>
+                );
+              })()
             ))
           )}
         </motion.div>

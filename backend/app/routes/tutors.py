@@ -89,8 +89,6 @@ async def get_tutors(
             query.setdefault("hourly_rate", {})["$lte"] = max_rate
         if session_type == "private":
             query["offers_private"] = True
-        elif session_type == "group":
-            query["offers_group"] = True
         if language:
             query["languages"] = {"$in": [language]}
 
@@ -224,6 +222,9 @@ async def update_tutor_profile(
         raise HTTPException(status_code=404, detail="Tutor profile not found")
 
     update_data = profile_data.model_dump(exclude_unset=True)
+    # Group sessions are disabled in current product flow.
+    update_data["offers_group"] = False
+    update_data["group_hourly_rate"] = 0.0
     for field, value in update_data.items():
         setattr(tutor, field, value)
 
@@ -297,8 +298,20 @@ async def get_tutor_by_slug(tutor_slug: str):
 
 @router.get("/{tutor_id}/reviews", response_model=List[ReviewResponse])
 async def get_tutor_reviews(tutor_id: str, skip: int = 0, limit: int = 10):
+    candidate_ids = {tutor_id}
+
+    tutor = await TutorProfile.get(tutor_id)
+    if tutor and tutor.user_id:
+        candidate_ids.add(str(tutor.user_id))
+
+    tutor_by_user = await TutorProfile.find_one(TutorProfile.user_id == tutor_id)
+    if tutor_by_user:
+        candidate_ids.add(str(tutor_by_user.id))
+        if tutor_by_user.user_id:
+            candidate_ids.add(str(tutor_by_user.user_id))
+
     reviews = await Review.find(
-        Review.tutor_id == tutor_id
+        Review.tutor_id.in_(list(candidate_ids))
     ).sort("-created_at").skip(skip).limit(limit).to_list()
 
     return [

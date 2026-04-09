@@ -1,12 +1,23 @@
-import React, { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Lottie from 'lottie-react';
 import { Search, Play, Star, Users, BookOpen, Award } from 'lucide-react';
 import CountUp from '../ui/CountUp';
+import {
+  DEFAULT_SUBJECTS,
+  HERO_SEARCH_SUGGESTIONS,
+  normalizeSearchTerm,
+  resolveSubjectFilterFromQuery,
+} from '../../utils/tutorSearch';
 
 const Hero: React.FC = () => {
   const [teacherAnimation, setTeacherAnimation] = useState(null);
+  const [query, setQuery] = useState('');
+  const [isSuggestionOpen, setIsSuggestionOpen] = useState(false);
+  const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(-1);
+  const navigate = useNavigate();
+  const searchWrapperRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     fetch('/animations/Teacher.json')
@@ -14,6 +25,87 @@ const Hero: React.FC = () => {
       .then(data => setTeacherAnimation(data))
       .catch(err => console.error('Failed to load animation:', err));
   }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!searchWrapperRef.current) return;
+      if (!searchWrapperRef.current.contains(event.target as Node)) {
+        setIsSuggestionOpen(false);
+        setActiveSuggestionIndex(-1);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const filteredSuggestions = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    const normalized = normalizeSearchTerm(term);
+    if (!term) return HERO_SEARCH_SUGGESTIONS.slice(0, 8);
+    return HERO_SEARCH_SUGGESTIONS
+      .filter((item) => {
+        const label = item.toLowerCase();
+        return label.includes(term) || (normalized && label.includes(normalized));
+      })
+      .slice(0, 8);
+  }, [query]);
+
+  const runSearch = (rawQuery?: string) => {
+    const value = (rawQuery ?? query).trim();
+    if (!value) {
+      navigate('/find-tutors');
+      return;
+    }
+
+    const exactSubject = resolveSubjectFilterFromQuery(value, DEFAULT_SUBJECTS);
+
+    const params = new URLSearchParams();
+    params.set('q', value);
+    if (exactSubject) {
+      params.set('subject', exactSubject);
+    }
+    navigate(`/find-tutors?${params.toString()}`);
+    setIsSuggestionOpen(false);
+    setActiveSuggestionIndex(-1);
+  };
+
+  const onSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!isSuggestionOpen && event.key !== 'Enter') return;
+
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveSuggestionIndex((prev) =>
+        prev < filteredSuggestions.length - 1 ? prev + 1 : 0
+      );
+      return;
+    }
+
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveSuggestionIndex((prev) =>
+        prev > 0 ? prev - 1 : filteredSuggestions.length - 1
+      );
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      if (isSuggestionOpen && activeSuggestionIndex >= 0 && filteredSuggestions[activeSuggestionIndex]) {
+        const selected = filteredSuggestions[activeSuggestionIndex];
+        setQuery(selected);
+        runSearch(selected);
+        return;
+      }
+      runSearch();
+      return;
+    }
+
+    if (event.key === 'Escape') {
+      setIsSuggestionOpen(false);
+      setActiveSuggestionIndex(-1);
+    }
+  };
+
   return (
     <section className="relative min-h-screen pt-20 overflow-hidden">
       {/* Background */}
@@ -52,17 +144,54 @@ const Hero: React.FC = () => {
 
             {/* Search Bar */}
             <div className="flex flex-col sm:flex-row gap-4 mb-8">
-              <div className="relative flex-1">
+              <div className="relative flex-1" ref={searchWrapperRef}>
                 <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input
                   type="text"
                   placeholder="What do you want to learn?"
+                  value={query}
+                  onChange={(e) => {
+                    setQuery(e.target.value);
+                    setIsSuggestionOpen(true);
+                    setActiveSuggestionIndex(-1);
+                  }}
+                  onFocus={() => setIsSuggestionOpen(true)}
+                  onKeyDown={onSearchKeyDown}
                   className="w-full pl-12 pr-4 py-4 bg-white rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent shadow-lg"
                 />
+                {isSuggestionOpen && filteredSuggestions.length > 0 && (
+                  <div className="absolute z-20 mt-2 w-full bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden">
+                    {filteredSuggestions.map((suggestion, index) => (
+                      <button
+                        key={suggestion}
+                        type="button"
+                        className={`w-full text-left px-4 py-3 text-sm transition-colors ${
+                          index === activeSuggestionIndex
+                            ? 'bg-primary-50 text-primary-700'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                        onMouseEnter={() => setActiveSuggestionIndex(index)}
+                        onClick={() => {
+                          setQuery(suggestion);
+                          runSearch(suggestion);
+                        }}
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <Search className="w-4 h-4 text-gray-400" />
+                          {suggestion}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <Link to="/find-tutors" className="btn-primary px-8 whitespace-nowrap">
+              <button
+                type="button"
+                onClick={() => runSearch()}
+                className="btn-primary px-8 whitespace-nowrap"
+              >
                 Find Experts
-              </Link>
+              </button>
             </div>
 
             {/* Stats with Animated Numbers */}

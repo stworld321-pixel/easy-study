@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Form, Query
 from fastapi.responses import Response
 from typing import Dict, List, Optional
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 import logging
 import asyncio
 from zoneinfo import ZoneInfo
@@ -27,12 +27,15 @@ def _to_utc_naive(dt: datetime) -> datetime:
     return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
-def _safe_zoneinfo(name: Optional[str]) -> ZoneInfo:
+def _safe_zoneinfo(name: Optional[str]) -> tzinfo:
     tz_name = (name or "UTC").strip() or "UTC"
     try:
         return ZoneInfo(tz_name)
     except Exception:
-        return ZoneInfo("UTC")
+        try:
+            return ZoneInfo("UTC")
+        except Exception:
+            return timezone.utc
 
 
 def _load_signature_bytes(signature_url: Optional[str]) -> Optional[bytes]:

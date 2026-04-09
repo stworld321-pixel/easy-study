@@ -18,6 +18,7 @@ from app.services.certificate_service import build_certificate_pdf
 from app.core.config import settings
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+from datetime import tzinfo
 from uuid import uuid4
 from jose import jwt as jose_jwt
 from pymongo import ReturnDocument
@@ -27,6 +28,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 MEET_LINK_EXPIRE_GRACE_MINUTES = 15
 EFFECTIVE_MIN_NOTICE_HOURS = 1
+WORKSHOP_CERTIFICATE_GRACE_MINUTES = 30
 
 
 def _build_jitsi_room_name(booking: Booking) -> str:
@@ -65,12 +67,15 @@ def _dispatch_background(coro, context: str) -> None:
 def _role_value(role: object) -> str:
     return getattr(role, "value", role)
 
-def _safe_zoneinfo(timezone_name: str | None) -> ZoneInfo:
+def _safe_zoneinfo(timezone_name: str | None) -> tzinfo:
     tz_name = (timezone_name or "UTC").strip() or "UTC"
     try:
         return ZoneInfo(tz_name)
     except Exception:
-        return ZoneInfo("UTC")
+        try:
+            return ZoneInfo("UTC")
+        except Exception:
+            return timezone.utc
 
 
 async def _get_booking_access(booking: Booking, current_user: User) -> tuple[bool, bool]:
@@ -84,6 +89,39 @@ async def _get_booking_access(booking: Booking, current_user: User) -> tuple[boo
             is_tutor_owner = is_tutor_owner or (str(tutor.id) == booking.tutor_id)
 
     return is_student, is_tutor_owner
+
+
+async def _resolve_booking_for_current_user(
+    requested_booking: Booking,
+    current_user: User,
+) -> tuple[Booking, bool, bool]:
+    """
+    Resolve booking context for shared group/workshop links.
+    - If user already owns requested booking => return it.
+    - If requested booking is group/workshop and user is a booked participant in same slot,
+      return user's own booking so access remains login+booking scoped.
+    """
+    is_student, is_tutor_owner = await _get_booking_access(requested_booking, current_user)
+    if is_student or is_tutor_owner:
+        return requested_booking, is_student, is_tutor_owner
+
+    if requested_booking.session_type != SessionType.GROUP:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    participant_booking = await Booking.find_one({
+        "student_id": str(current_user.id),
+        "tutor_id": requested_booking.tutor_id,
+        "session_type": SessionType.GROUP.value,
+        "scheduled_at": requested_booking.scheduled_at,
+        "duration_minutes": requested_booking.duration_minutes,
+        "status": BookingStatus.CONFIRMED.value,
+    })
+
+    if not participant_booking:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    is_student, is_tutor_owner = await _get_booking_access(participant_booking, current_user)
+    return participant_booking, is_student, is_tutor_owner
 
 
 def _build_jitsi_access_token(
@@ -136,6 +174,20 @@ def _meeting_link_expires_at(booking: Booking) -> Optional[datetime]:
         return None
     start = _to_utc_naive(booking.scheduled_at)
     return start + timedelta(minutes=booking.duration_minutes + MEET_LINK_EXPIRE_GRACE_MINUTES)
+
+
+def _meeting_join_available_at(booking: Booking) -> Optional[datetime]:
+    if not booking.meeting_link:
+        return None
+    start = _to_utc_naive(booking.scheduled_at)
+    return start - timedelta(minutes=15)
+
+
+def _workshop_certificate_ready_at(booking: Booking) -> Optional[datetime]:
+    if not _is_workshop_booking(booking):
+        return None
+    start = _to_utc_naive(booking.scheduled_at)
+    return start + timedelta(minutes=booking.duration_minutes + WORKSHOP_CERTIFICATE_GRACE_MINUTES)
 
 
 def _is_meeting_link_expired(booking: Booking) -> bool:
@@ -243,6 +295,46 @@ async def _ensure_completion_certificate_for_booking(booking: Booking) -> Option
     return upload_result["url"]
 
 
+async def _maybe_generate_workshop_certificate_after_grace(booking: Booking) -> Optional[str]:
+    """Generate workshop certificate only after the grace period has passed."""
+    ready_at = _workshop_certificate_ready_at(booking)
+    if not ready_at or datetime.utcnow() < ready_at:
+        return None
+    return await _ensure_completion_certificate_for_booking(booking)
+
+
+async def _schedule_workshop_certificate_issue(booking_id: str) -> None:
+    """Fire-and-forget scheduler for workshop certificates after session end + grace."""
+    async def _runner():
+        try:
+            booking = await Booking.get(booking_id)
+            if not booking or not _is_workshop_booking(booking):
+                return
+
+            ready_at = _workshop_certificate_ready_at(booking)
+            if not ready_at:
+                return
+
+            delay = max(0.0, (ready_at - datetime.utcnow()).total_seconds())
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+            booking = await Booking.get(booking_id)
+            if not booking or booking.status == BookingStatus.CANCELLED:
+                return
+
+            if booking.status != BookingStatus.COMPLETED:
+                booking.status = BookingStatus.COMPLETED
+                booking.updated_at = datetime.utcnow()
+                await booking.save()
+
+            await _ensure_completion_certificate_for_booking(booking)
+        except Exception:
+            logger.exception("Failed to schedule workshop certificate for booking %s", booking_id)
+
+    asyncio.create_task(_runner())
+
+
 async def _auto_complete_if_past(booking: Booking) -> bool:
     """Mark confirmed booking completed once session end time has passed."""
     if booking.status != BookingStatus.CONFIRMED:
@@ -313,6 +405,19 @@ async def _ensure_meeting_room_key(booking: Booking) -> str:
     if booking.meeting_room_key:
         return booking.meeting_room_key
 
+    if _is_workshop_booking(booking):
+        workshop_key_source = ""
+        if booking.notes and "workshop booking:" in booking.notes.lower():
+            try:
+                workshop_key_source = booking.notes.split(":", 1)[1].strip()
+            except Exception:
+                workshop_key_source = ""
+        workshop_key_source = workshop_key_source or (booking.session_name or booking.subject or str(booking.id))
+        booking.meeting_room_key = f"zc-w-{workshop_key_source}".lower().replace(" ", "-")
+        booking.updated_at = datetime.utcnow()
+        await booking.save()
+        return booking.meeting_room_key
+
     if booking.session_type == SessionType.GROUP:
         sibling = await Booking.find_one({
             "_id": {"$ne": booking.id},
@@ -343,6 +448,10 @@ class MeetingAccessResponse(BaseModel):
     launch_url: str
     is_moderator: bool
     jwt: Optional[str] = None
+    join_available_at: Optional[datetime] = None
+    join_expires_at: Optional[datetime] = None
+    feedback_allowed_at: Optional[datetime] = None
+    certificate_ready_at: Optional[datetime] = None
 
 
 class JitsiTestAccessResponse(BaseModel):
@@ -379,6 +488,7 @@ async def _get_group_capacity(tutor: TutorProfile) -> int:
 async def _reserve_slot(
     tutor: TutorProfile,
     booking_data: BookingCreate,
+    capacity_override: Optional[int] = None,
 ) -> None:
     """
     Atomically reserve one seat in tutor slot.
@@ -394,7 +504,11 @@ async def _reserve_slot(
     }
 
     collection = _get_booking_slot_collection()
-    capacity = 1 if booking_data.session_type == SessionType.PRIVATE else await _get_group_capacity(tutor)
+    capacity = (
+        max(1, int(capacity_override))
+        if capacity_override is not None
+        else (1 if booking_data.session_type == SessionType.PRIVATE else await _get_group_capacity(tutor))
+    )
 
     for _ in range(3):
         slot = await BookingSlot.find_one(slot_filter)
@@ -500,9 +614,35 @@ async def create_booking(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new booking request"""
+    is_workshop_flow = "workshop booking:" in (booking_data.notes or "").lower()
+    workshop_id: Optional[str] = None
+    workshop = None
+    if is_workshop_flow:
+        try:
+            raw = (booking_data.notes or "").split(":", 1)[1].strip()
+            workshop_id = raw or None
+        except Exception:
+            workshop_id = None
+
+        if workshop_id:
+            from app.models.workshop import Workshop
+            workshop = await Workshop.get(workshop_id)
+            if not workshop or not workshop.is_active:
+                raise HTTPException(status_code=400, detail="Workshop not found or inactive.")
+    if booking_data.session_type == SessionType.GROUP:
+        if not is_workshop_flow:
+            raise HTTPException(
+                status_code=400,
+                detail="Group sessions are currently disabled. Please book a private session."
+            )
+
     tutor = await TutorProfile.get(booking_data.tutor_id)
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor not found")
+
+    current_user_tutor = await TutorProfile.find_one(TutorProfile.user_id == str(current_user.id))
+    if current_user_tutor and str(current_user_tutor.id) == booking_data.tutor_id:
+        raise HTTPException(status_code=403, detail="Tutors cannot book their own sessions.")
 
     availability = await TutorAvailability.find_one(TutorAvailability.tutor_id == booking_data.tutor_id)
     tutor_tz = _safe_zoneinfo(getattr(availability, "timezone", None))
@@ -522,7 +662,11 @@ async def create_booking(
         )
 
     # Reserve tutor slot atomically (capacity + cross-type conflict guards).
-    await _reserve_slot(tutor, booking_data)
+    await _reserve_slot(
+        tutor,
+        booking_data,
+        capacity_override=(workshop.max_participants if workshop else None),
+    )
 
     # Prevent duplicate active bookings for the same slot by the same student.
     existing_booking = await Booking.find_one({
@@ -536,21 +680,33 @@ async def create_booking(
     if existing_booking:
         raise HTTPException(status_code=400, detail="You already booked this timeslot.")
 
-    # Get the correct hourly rate based on session type
-    if booking_data.session_type.value == "group":
-        # Use group rate if available, otherwise calculate 60% of private rate
-        hourly_rate = tutor.group_hourly_rate if tutor.group_hourly_rate else tutor.hourly_rate * 0.6
+    if workshop:
+        base_amount = float(workshop.amount or 0)
+        workshop_currency = (workshop.currency or "INR").upper()
+        if booking_data.currency == workshop_currency:
+            session_price = round(base_amount, 2)
+        elif workshop_currency == "INR" and booking_data.currency == "USD":
+            session_price = round(base_amount * INR_TO_USD_RATE, 2)
+        elif workshop_currency == "USD" and booking_data.currency == "INR":
+            session_price = round(base_amount / INR_TO_USD_RATE, 2)
+        else:
+            session_price = round(base_amount, 2)
     else:
-        hourly_rate = tutor.hourly_rate
+        # Get the correct hourly rate based on session type
+        if booking_data.session_type.value == "group":
+            # Use group rate if available, otherwise calculate 60% of private rate
+            hourly_rate = tutor.group_hourly_rate if tutor.group_hourly_rate else tutor.hourly_rate * 0.6
+        else:
+            hourly_rate = tutor.hourly_rate
 
-    # Calculate session price in INR (base currency)
-    session_price_inr = hourly_rate * (booking_data.duration_minutes / 60)
+        # Calculate session price in INR (base currency)
+        session_price_inr = hourly_rate * (booking_data.duration_minutes / 60)
 
-    # Convert to requested currency if needed
-    if booking_data.currency == "USD":
-        session_price = round(session_price_inr * INR_TO_USD_RATE, 2)
-    else:
-        session_price = session_price_inr
+        # Convert to requested currency if needed
+        if booking_data.currency == "USD":
+            session_price = round(session_price_inr * INR_TO_USD_RATE, 2)
+        else:
+            session_price = session_price_inr
 
     # Razorpay minimum order amount guard (prevents create-order failures later).
     if session_price < MIN_ORDER_AMOUNT:
@@ -565,13 +721,16 @@ async def create_booking(
     booking = Booking(
         student_id=str(current_user.id),
         tutor_id=booking_data.tutor_id,
-        subject=booking_data.subject,
+        subject=(workshop.title if workshop else booking_data.subject),
         session_type=booking_data.session_type,
         scheduled_at=booking_data.scheduled_at,
         duration_minutes=booking_data.duration_minutes,
         price=session_price,
         currency=booking_data.currency,
         notes=booking_data.notes,
+        is_workshop=bool(workshop),
+        session_name=(workshop.title if workshop else None),
+        meeting_room_key=(f"zc-w-{workshop_id}".lower().replace(" ", "-") if workshop_id else None),
         student_name=current_user.full_name,
         tutor_name=tutor.full_name,
         student_email=current_user.email,
@@ -648,7 +807,10 @@ async def get_my_bookings(current_user: User = Depends(get_current_user)):
         try:
             changed = await _auto_complete_if_past(b)
             if changed or b.status == BookingStatus.COMPLETED:
-                await _ensure_completion_certificate_for_booking(b)
+                if _is_workshop_booking(b):
+                    await _maybe_generate_workshop_certificate_after_grace(b)
+                else:
+                    await _ensure_completion_certificate_for_booking(b)
         except Exception:
             logger.exception("Failed post-session processing for booking %s", b.id)
 
@@ -661,12 +823,17 @@ async def get_booking_by_id(booking_id: str, current_user: User = Depends(get_cu
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    is_student, is_tutor_owner = await _get_booking_access(booking, current_user)
-
-    if not is_student and not is_tutor_owner:
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-    return create_booking_response(booking)
+    resolved_booking, _, _ = await _resolve_booking_for_current_user(booking, current_user)
+    try:
+        changed = await _auto_complete_if_past(resolved_booking)
+        if changed or resolved_booking.status == BookingStatus.COMPLETED:
+            if _is_workshop_booking(resolved_booking):
+                await _maybe_generate_workshop_certificate_after_grace(resolved_booking)
+            else:
+                await _ensure_completion_certificate_for_booking(resolved_booking)
+    except Exception:
+        logger.exception("Failed post-session processing for booking %s", resolved_booking.id)
+    return create_booking_response(resolved_booking)
 
 
 @router.get("/jitsi/test-access", response_model=JitsiTestAccessResponse)
@@ -725,9 +892,7 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    is_student, is_tutor_owner = await _get_booking_access(booking, current_user)
-    if not is_student and not is_tutor_owner:
-        raise HTTPException(status_code=403, detail="Not authorized")
+    booking, is_student, is_tutor_owner = await _resolve_booking_for_current_user(booking, current_user)
 
     if booking.status != BookingStatus.CONFIRMED:
         raise HTTPException(status_code=400, detail="Session is not confirmed.")
@@ -739,6 +904,13 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
         raise HTTPException(
             status_code=503,
             detail="Secure meeting access is enabled but JITSI_APP_SECRET is not configured."
+        )
+
+    join_available_at = _meeting_join_available_at(booking)
+    if join_available_at and datetime.utcnow() < join_available_at:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Session is not open yet. You can join after {join_available_at.strftime('%d %b %Y, %I:%M %p UTC')}."
         )
 
     room_name = await _ensure_meeting_room_key(booking)
@@ -760,6 +932,10 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
         launch_url=launch_url,
         is_moderator=is_tutor_owner,
         jwt=token,
+        join_available_at=join_available_at,
+        join_expires_at=_meeting_link_expires_at(booking),
+        feedback_allowed_at=_to_utc_naive(booking.scheduled_at) + timedelta(minutes=booking.duration_minutes),
+        certificate_ready_at=_workshop_certificate_ready_at(booking) if _is_workshop_booking(booking) else None,
     )
 
 
@@ -875,19 +1051,66 @@ async def confirm_booking(
     # Jitsi-only flow: always generate in-app meeting URL.
     booking.status = BookingStatus.CONFIRMED
     await _ensure_meeting_room_key(booking)
-    booking.meeting_link = _build_in_app_meeting_link(booking)
+    meeting_link = _build_in_app_meeting_link(booking)
+    if booking.session_type == SessionType.GROUP:
+        slot_filter = {
+            "tutor_id": booking.tutor_id,
+            "session_type": SessionType.GROUP.value,
+            "scheduled_at": booking.scheduled_at,
+            "duration_minutes": booking.duration_minutes,
+            "status": BookingStatus.CONFIRMED.value,
+        }
+        siblings = await Booking.find(slot_filter).sort("+created_at").to_list()
+        anchor = siblings[0] if siblings else booking
+        meeting_link = _build_in_app_meeting_link(anchor)
+        # Keep same meeting link for all confirmed participants in this group slot.
+        for sib in siblings:
+            if sib.meeting_link != meeting_link:
+                sib.meeting_link = meeting_link
+                sib.updated_at = datetime.utcnow()
+                await sib.save()
+
+    booking.meeting_link = meeting_link
     booking.meeting_provider = "jitsi"
     booking.meeting_origin = "lms_embedded"
     booking.google_event_id = None
     booking.updated_at = datetime.utcnow()
 
     await booking.save()
+    if _is_workshop_booking(booking):
+        _dispatch_background(_schedule_workshop_certificate_issue(str(booking.id)), "workshop_certificate_schedule_on_confirm")
 
     # Complete the payment when booking is confirmed
     try:
         payment = await payment_service.get_payment_by_booking(booking_id)
         if payment:
             await payment_service.complete_payment(str(payment.id))
+            booking.payment_status = "paid"
+            await booking.save()
+
+            # Fallback invoice trigger for flows where payment verify endpoint is skipped.
+            if booking.student_email:
+                total_paid = payment.charge_amount if payment.charge_amount and payment.charge_amount > 0 else payment.session_amount
+                _dispatch_background(
+                    email_service.send_payment_invoice_email_with_retry(
+                        to_email=booking.student_email,
+                        student_name=booking.student_name or "Student",
+                        booking_id=str(booking.id),
+                        payment_id=str(payment.id),
+                        subject_name=booking.subject,
+                        tutor_name=booking.tutor_name or current_user.full_name or "Tutor",
+                        scheduled_at=booking.scheduled_at,
+                        currency=payment.currency,
+                        session_amount=payment.session_amount,
+                        platform_fee=payment.student_platform_fee,
+                        total_paid=total_paid,
+                        razorpay_payment_id=payment.razorpay_payment_id,
+                    ),
+                    "invoice_on_confirm_fallback",
+                )
+
+            if _is_workshop_booking(booking):
+                _dispatch_background(_schedule_workshop_certificate_issue(str(booking.id)), "workshop_certificate_schedule_on_payment_confirm")
     except Exception:
         logger.exception("Failed to complete payment for booking %s", booking_id)
 
@@ -904,6 +1127,23 @@ async def confirm_booking(
         )
     except Exception:
         logger.exception("Failed to send booking confirmation notification for booking %s", booking.id)
+
+    # Send tutor-side session confirmation email (summary copy)
+    try:
+        if current_user.email:
+            _dispatch_background(
+                email_service.send_tutor_session_confirmation_email(
+                    to_email=current_user.email,
+                    tutor_name=current_user.full_name or (booking.tutor_name or "Tutor"),
+                    student_name=booking.student_name or "Student",
+                    subject_name=booking.subject,
+                    scheduled_at=booking.scheduled_at,
+                    meeting_link=booking.meeting_link,
+                ),
+                "tutor_session_confirmation_email",
+            )
+    except Exception:
+        logger.exception("Failed to send tutor session confirmation email for booking %s", booking.id)
 
     return create_booking_response(booking)
 
@@ -1000,6 +1240,50 @@ async def cancel_booking(
             )
     except Exception:
         logger.exception("Failed to send cancellation notification for booking %s", booking.id)
+
+    # Send cancellation acknowledgement to the user who performed the cancellation as well.
+    try:
+        if current_user.email:
+            _dispatch_background(
+                email_service.send_booking_cancelled_email(
+                    to_email=current_user.email,
+                    recipient_name=current_user.full_name or "User",
+                    cancelled_by=current_user.full_name or "User",
+                    subject_name=booking.subject,
+                    scheduled_at=booking.scheduled_at,
+                ),
+                "booking_cancelled_ack_email",
+            )
+    except Exception:
+        logger.exception("Failed to send cancellation acknowledgement email for booking %s", booking.id)
+
+    # If paid booking is cancelled, notify student that refund is initiated.
+    try:
+        if booking.payment_status == "paid" and booking.student_email:
+            payment = await payment_service.get_payment_by_booking(str(booking.id))
+            refund_amount = 0.0
+            refund_currency = booking.currency or "INR"
+            if payment:
+                refund_currency = payment.currency
+                refund_amount = payment.charge_amount if (payment.charge_amount and payment.charge_amount > 0) else payment.session_amount
+            else:
+                refund_amount = booking.price
+
+            _dispatch_background(
+                email_service.send_refund_initiated_email(
+                    to_email=booking.student_email,
+                    student_name=booking.student_name or "Student",
+                    booking_id=str(booking.id),
+                    subject_name=booking.subject,
+                    scheduled_at=booking.scheduled_at,
+                    currency=refund_currency,
+                    amount=refund_amount,
+                    eta_text="2 to 4 business days",
+                ),
+                "refund_initiated_email",
+            )
+    except Exception:
+        logger.exception("Failed to send refund initiated email for booking %s", booking.id)
 
     return create_booking_response(booking)
 

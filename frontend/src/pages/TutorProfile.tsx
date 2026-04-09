@@ -6,7 +6,8 @@ import {
   Globe, Calendar, Clock, BookOpen, Award, MessageCircle,
   Heart, Share2
 } from 'lucide-react';
-import { tutorsAPI } from '../services/api';
+import { materialsAPI, tutorsAPI } from '../services/api';
+import type { RatingResponse } from '../services/api';
 import type { TutorProfile as TutorProfileType } from '../types';
 import BookingModal from '../components/BookingModal';
 import { useCurrency } from '../context/CurrencyContext';
@@ -17,6 +18,8 @@ const TutorProfile: React.FC = () => {
   const navigate = useNavigate();
   const [tutor, setTutor] = useState<TutorProfileType | null>(null);
   const [loading, setLoading] = useState(true);
+  const [reviews, setReviews] = useState<RatingResponse[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const { formatPrice } = useCurrency();
@@ -68,6 +71,58 @@ const TutorProfile: React.FC = () => {
 
     fetchTutor();
   }, [slug]);
+
+  useEffect(() => {
+    const fetchReviews = async () => {
+      if (!tutor?.id) {
+        setReviews([]);
+        return;
+      }
+
+      setReviewsLoading(true);
+      try {
+        const primary = await materialsAPI.getTutorRatings(tutor.id);
+        const primaryRatings = Array.isArray(primary) ? primary : [];
+
+        if (primaryRatings.length > 0 || !tutor.user_id || tutor.user_id === tutor.id) {
+          setReviews(primaryRatings);
+          return;
+        }
+
+        const fallback = await materialsAPI.getTutorRatings(tutor.user_id);
+        const fallbackRatings = Array.isArray(fallback) ? fallback : primaryRatings;
+        if (fallbackRatings.length > 0) {
+          setReviews(fallbackRatings);
+          return;
+        }
+
+        const legacy = await tutorsAPI.getReviews(tutor.id);
+        const legacyRatings = Array.isArray(legacy)
+          ? legacy.map((review) => ({
+              id: review.id,
+              tutor_id: review.tutor_id,
+              tutor_name: tutor.full_name || 'Tutor',
+              student_id: review.student_id,
+              student_name: review.student_name || 'Anonymous Student',
+              subject: tutor.subjects?.[0] || tutor.headline || 'Session',
+              rating: review.rating,
+              comment: review.comment || '',
+              session_date: review.created_at,
+              certificate_url: undefined,
+              created_at: review.created_at,
+            }))
+          : [];
+        setReviews(legacyRatings);
+      } catch (error) {
+        console.error('Failed to fetch tutor reviews:', error);
+        setReviews([]);
+      } finally {
+        setReviewsLoading(false);
+      }
+    };
+
+    fetchReviews();
+  }, [tutor?.id]);
 
   useEffect(() => {
     if (!tutor) return;
@@ -159,6 +214,12 @@ const TutorProfile: React.FC = () => {
       </div>
     );
   }
+
+  const reviewCount = reviews.length;
+  const averageRating = reviewCount > 0
+    ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviewCount
+    : 0;
+  const uniqueStudents = new Set(reviews.map((review) => review.student_id)).size;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
@@ -371,6 +432,105 @@ const TutorProfile: React.FC = () => {
                   </div>
                 ))}
               </div>
+            </motion.div>
+
+            {/* Reviews */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6"
+            >
+              <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4 mb-6">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 mb-2 flex items-center gap-2">
+                    <Star className="w-5 h-5 text-primary-600 fill-current" />
+                    Reviews & Feedback
+                  </h2>
+                  <p className="text-gray-500 text-sm">
+                    What students are saying about this tutor
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="px-4 py-3 bg-yellow-50 rounded-xl border border-yellow-100 text-center">
+                    <div className="text-lg font-bold text-gray-900">
+                      {reviewCount > 0 ? averageRating.toFixed(1) : '0.0'}
+                    </div>
+                    <div className="text-xs text-gray-500">Avg Rating</div>
+                  </div>
+                  <div className="px-4 py-3 bg-gray-50 rounded-xl border border-gray-100 text-center">
+                    <div className="text-lg font-bold text-gray-900">
+                      {reviewCount}
+                    </div>
+                    <div className="text-xs text-gray-500">Reviews</div>
+                  </div>
+                  <div className="px-4 py-3 bg-primary-50 rounded-xl border border-primary-100 text-center">
+                    <div className="text-lg font-bold text-gray-900">{uniqueStudents}</div>
+                    <div className="text-xs text-gray-500">Students</div>
+                  </div>
+                </div>
+              </div>
+
+              {reviewsLoading ? (
+                <div className="flex items-center justify-center py-10">
+                  <div className="animate-spin w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full" />
+                </div>
+              ) : reviews.length > 0 ? (
+                <div className="space-y-4">
+                  {reviews.slice(0, 6).map((review) => (
+                    <div key={review.id} className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <div className="w-11 h-11 rounded-full bg-gradient-to-br from-primary-500 to-secondary-500 text-white flex items-center justify-center font-semibold overflow-hidden flex-shrink-0">
+                            <span>{(review.student_name || 'S').charAt(0).toUpperCase()}</span>
+                          </div>
+                          <div>
+                            <div className="font-semibold text-gray-900">
+                              {review.student_name || 'Anonymous Student'}
+                            </div>
+                            {review.subject && (
+                              <div className="text-xs text-gray-500 mt-0.5">{review.subject}</div>
+                            )}
+                            <div className="flex items-center gap-1 mt-1">
+                              {Array.from({ length: 5 }).map((_, index) => (
+                                <Star
+                                  key={index}
+                                  className={`w-4 h-4 ${
+                                    index < review.rating ? 'text-yellow-500 fill-current' : 'text-gray-300'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-xs text-gray-400 whitespace-nowrap">
+                          {new Date(review.created_at).toLocaleDateString()}
+                        </div>
+                      </div>
+
+                      {review.comment && (
+                        <p className="mt-3 text-gray-600 leading-relaxed">
+                          {review.comment}
+                        </p>
+                      )}
+                      {review.session_date && (
+                        <p className="mt-2 text-xs text-gray-400">
+                          Session: {new Date(review.session_date).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-10 px-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                  <MessageCircle className="w-10 h-10 text-gray-300 mx-auto mb-3" />
+                  <h3 className="font-semibold text-gray-900 mb-2">No reviews yet</h3>
+                  <p className="text-gray-500 text-sm max-w-md mx-auto">
+                    Once students complete sessions and submit feedback, reviews will appear here.
+                  </p>
+                </div>
+              )}
             </motion.div>
           </div>
 

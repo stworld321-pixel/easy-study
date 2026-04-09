@@ -6,19 +6,24 @@ from app.models.tutor import TutorProfile
 from app.schemas.user import UserCreate, UserLogin, UserResponse, Token
 from app.core.security import get_password_hash, verify_password, create_access_token, decode_token
 from app.services.email_service import email_service
-from datetime import timedelta
+from datetime import timedelta, datetime
 from app.core.config import settings
 import traceback
 import asyncio
 import logging
 import httpx
+import json
 from typing import Optional
+from jose import jwt as jose_jwt, JWTError
 from pymongo.errors import DuplicateKeyError, PyMongoError
 from beanie.exceptions import CollectionWasNotInitialized
 
 router = APIRouter()
 security = HTTPBearer()
 logger = logging.getLogger(__name__)
+_firebase_ready = False
+_firebase_init_attempted = False
+PASSWORD_SETUP_EXPIRE_MINUTES = 30
 
 
 def _dispatch_background(coro, context: str) -> None:
@@ -40,6 +45,86 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+
+def _create_password_setup_token(email: str, expires_minutes: int = PASSWORD_SETUP_EXPIRE_MINUTES) -> str:
+    payload = {
+        "sub": email,
+        "purpose": "password_setup",
+        "exp": datetime.utcnow() + timedelta(minutes=expires_minutes),
+    }
+    return jose_jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+
+
+def _decode_password_setup_token(token: str) -> Optional[str]:
+    try:
+        payload = jose_jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        if payload.get("purpose") != "password_setup":
+            return None
+        return payload.get("sub")
+    except JWTError:
+        return None
+
+
+def _init_firebase_admin() -> bool:
+    global _firebase_ready, _firebase_init_attempted
+    if _firebase_ready:
+        return True
+    if _firebase_init_attempted:
+        return False
+    _firebase_init_attempted = True
+
+    try:
+        import firebase_admin
+        from firebase_admin import credentials
+
+        try:
+            firebase_admin.get_app()
+            _firebase_ready = True
+            return True
+        except ValueError:
+            pass
+
+        cred = None
+        if settings.FIREBASE_SERVICE_ACCOUNT_FILE:
+            cred = credentials.Certificate(settings.FIREBASE_SERVICE_ACCOUNT_FILE)
+        elif settings.FIREBASE_SERVICE_ACCOUNT_JSON:
+            cred = credentials.Certificate(json.loads(settings.FIREBASE_SERVICE_ACCOUNT_JSON))
+
+        options = {}
+        if settings.FIREBASE_PROJECT_ID:
+            options["projectId"] = settings.FIREBASE_PROJECT_ID
+
+        if cred:
+            firebase_admin.initialize_app(cred, options if options else None)
+        else:
+            # Try default credentials if available.
+            firebase_admin.initialize_app(options=options if options else None)
+
+        _firebase_ready = True
+        return True
+    except Exception as e:
+        logger.warning("Firebase admin init failed: %s", e)
+        return False
+
+
+def _verify_firebase_token_sync(credential: str) -> Optional["GoogleUserInfo"]:
+    try:
+        if not _init_firebase_admin():
+            return None
+        from firebase_admin import auth as firebase_auth
+        decoded = firebase_auth.verify_id_token(credential, check_revoked=False)
+        email = decoded.get("email")
+        if not email:
+            return None
+        return GoogleUserInfo(
+            email=email,
+            name=decoded.get("name", email.split("@")[0]),
+            picture=decoded.get("picture"),
+            email_verified=bool(decoded.get("email_verified", False))
+        )
+    except Exception:
+        return None
 
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate):
@@ -176,8 +261,49 @@ class GoogleUserInfo(BaseModel):
     email_verified: bool = False
 
 
+class PasswordSetupRequest(BaseModel):
+    email: str
+
+
+class PasswordSetupConfirmRequest(BaseModel):
+    token: str
+    password: str
+
+
 async def verify_google_token(credential: str) -> Optional[GoogleUserInfo]:
     """Verify Google ID token and extract user info"""
+    # 1) Firebase ID token flow (Google via Firebase Auth)
+    firebase_user = await asyncio.to_thread(_verify_firebase_token_sync, credential)
+    if firebase_user:
+        return firebase_user
+
+    # 2) Firebase REST verify fallback (works without service-account JSON)
+    if settings.FIREBASE_WEB_API_KEY:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(
+                    f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={settings.FIREBASE_WEB_API_KEY}",
+                    json={"idToken": credential},
+                )
+                if response.status_code == 200:
+                    data = response.json() or {}
+                    users = data.get("users") or []
+                    if users:
+                        u = users[0]
+                        email = u.get("email")
+                        if email:
+                            return GoogleUserInfo(
+                                email=email,
+                                name=u.get("displayName") or email.split("@")[0],
+                                picture=u.get("photoUrl"),
+                                email_verified=bool(u.get("emailVerified", False)),
+                            )
+                else:
+                    logger.warning("Firebase REST token verify failed: %s", response.text)
+        except Exception as e:
+            logger.warning("Firebase REST verify error: %s", e)
+
+    # 3) Legacy Google ID token flow (tokeninfo endpoint)
     try:
         # Verify token with Google
         async with httpx.AsyncClient() as client:
@@ -192,7 +318,7 @@ async def verify_google_token(credential: str) -> Optional[GoogleUserInfo]:
             data = response.json()
 
             # Verify the token is for our app
-            if data.get("aud") != settings.GOOGLE_CLIENT_ID:
+            if settings.GOOGLE_CLIENT_ID and data.get("aud") != settings.GOOGLE_CLIENT_ID:
                 print(f"[Google Auth] Invalid audience: {data.get('aud')}")
                 return None
 
@@ -276,6 +402,23 @@ async def google_auth(request: GoogleAuthRequest):
         except Exception as e:
             print(f"[Email] Failed to send welcome email: {e}")
 
+        # Google sign-up userக்கு immediate password setup link send பண்ணு
+        # so same account can login via email/password too.
+        try:
+            setup_token = _create_password_setup_token(user.email)
+            setup_link = f"{settings.FRONTEND_URL.rstrip('/')}/set-password?token={setup_token}"
+            _dispatch_background(
+                email_service.send_password_setup_email(
+                    to_email=user.email,
+                    user_name=user.full_name or "User",
+                    setup_link=setup_link,
+                    expires_minutes=PASSWORD_SETUP_EXPIRE_MINUTES,
+                ),
+                "google_register_password_setup_email"
+            )
+        except Exception as e:
+            logger.exception("Failed to send password setup email for Google sign-up %s", user.email)
+
     # Generate access token
     access_token = create_access_token(
         data={"sub": user.email},
@@ -296,3 +439,54 @@ async def google_auth(request: GoogleAuthRequest):
             created_at=user.created_at
         )
     )
+
+
+@router.post("/password/setup/request")
+@router.post("/password/reset/request")
+async def request_password_setup(data: PasswordSetupRequest):
+    email = data.email.strip().lower()
+    # Generic response to avoid account enumeration
+    response = {"message": "If the account exists, a password setup link has been sent."}
+
+    user = await User.find_one({"email": email})
+    if not user or not user.is_active:
+        return response
+
+    token = _create_password_setup_token(user.email)
+    setup_link = f"{settings.FRONTEND_URL.rstrip('/')}/set-password?token={token}"
+    sent = await email_service.send_password_setup_email(
+        to_email=user.email,
+        user_name=user.full_name or "User",
+        setup_link=setup_link,
+        expires_minutes=PASSWORD_SETUP_EXPIRE_MINUTES,
+    )
+    if not sent:
+        logger.error("Password reset email failed for %s", user.email)
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to send password reset email. Check SMTP host, port, username, password, and sender address."
+        )
+    return response
+
+
+@router.post("/password/setup/confirm")
+@router.post("/password/reset/confirm")
+async def confirm_password_setup(data: PasswordSetupConfirmRequest):
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    email = _decode_password_setup_token(data.token)
+    if not email:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+    user = await User.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Account is disabled")
+
+    user.hashed_password = get_password_hash(data.password)
+    user.updated_at = datetime.utcnow()
+    await user.save()
+
+    return {"message": "Password set successfully. You can now login with email and password."}

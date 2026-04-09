@@ -49,6 +49,16 @@ export const authAPI = {
     return response.data;
   },
 
+  requestPasswordSetup: async (email: string): Promise<{ message: string }> => {
+    const response = await api.post('/auth/password/setup/request', { email });
+    return response.data;
+  },
+
+  confirmPasswordSetup: async (token: string, password: string): Promise<{ message: string }> => {
+    const response = await api.post('/auth/password/setup/confirm', { token, password });
+    return response.data;
+  },
+
   getMe: async () => {
     const response = await api.get('/auth/me');
     return response.data;
@@ -105,6 +115,76 @@ export const tutorsAPI = {
 
   updateProfile: async (data: Partial<TutorProfile>): Promise<TutorProfile> => {
     const response = await api.put('/tutors/profile', data);
+    return response.data;
+  },
+};
+
+export interface WorkshopResponse {
+  id: string;
+  tutor_id: string;
+  tutor_user_id: string;
+  title: string;
+  description?: string;
+  modules: string[];
+  thumbnail_url?: string;
+  amount: number;
+  currency: string;
+  scheduled_at: string;
+  duration_minutes: number;
+  max_participants: number;
+  is_active: boolean;
+  tutor_name?: string;
+  tutor_email?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkshopCreateInput {
+  title: string;
+  description?: string;
+  modules: string[];
+  thumbnail_url?: string;
+  amount: number;
+  currency: string;
+  scheduled_at: string;
+  duration_minutes: number;
+  max_participants: number;
+  is_active: boolean;
+}
+
+export const workshopsAPI = {
+  getPublicWorkshops: async (params?: {
+    q?: string;
+    skip?: number;
+    limit?: number;
+    upcoming_only?: boolean;
+  }): Promise<WorkshopResponse[]> => {
+    const response = await api.get('/workshops/public', { params });
+    return response.data;
+  },
+
+  getPublicWorkshopById: async (id: string): Promise<WorkshopResponse> => {
+    const response = await api.get(`/workshops/public/${id}`);
+    return response.data;
+  },
+
+  getMyWorkshops: async (): Promise<WorkshopResponse[]> => {
+    const response = await api.get('/workshops/my');
+    return response.data;
+  },
+
+  createWorkshop: async (data: WorkshopCreateInput): Promise<WorkshopResponse> => {
+    const response = await api.post('/workshops/my', data);
+    return response.data;
+  },
+
+  updateWorkshop: async (id: string, data: Partial<WorkshopCreateInput>): Promise<WorkshopResponse> => {
+    const response = await api.put(`/workshops/my/${id}`, data);
+    return response.data;
+  },
+
+  deleteWorkshop: async (id: string): Promise<{ message: string }> => {
+    const response = await api.delete(`/workshops/my/${id}`);
     return response.data;
   },
 };
@@ -265,6 +345,10 @@ export interface MeetingAccessResponse {
   launch_url: string;
   is_moderator: boolean;
   jwt?: string;
+  join_available_at?: string;
+  join_expires_at?: string;
+  feedback_allowed_at?: string;
+  certificate_ready_at?: string;
 }
 
 export interface JitsiTestAccessResponse {
@@ -379,6 +463,18 @@ export interface PaymentDetails {
   created_at: string;
 }
 
+export interface TutorPaymentListItem {
+  id: string;
+  booking_id: string;
+  student_name: string;
+  scheduled_at?: string;
+  session_amount: number;
+  tutor_earnings: number;
+  currency: string;
+  status: string;
+  created_at: string;
+}
+
 // Payment API
 export const paymentsAPI = {
   createOrder: async (bookingId: string): Promise<RazorpayOrder> => {
@@ -408,6 +504,18 @@ export const paymentsAPI = {
     student_platform_fee_rate?: number;
   }> => {
     const response = await api.get('/payments/config');
+    return response.data;
+  },
+
+  getTutorPayments: async (): Promise<TutorPaymentListItem[]> => {
+    const response = await api.get('/payments/tutor/list');
+    return response.data;
+  },
+
+  downloadTutorInvoice: async (paymentId: string): Promise<Blob> => {
+    const response = await api.get(`/payments/tutor/invoice/${paymentId}`, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 };
@@ -877,6 +985,17 @@ export const uploadAPI = {
     const formData = new FormData();
     formData.append('file', file);
     const response = await api.post('/uploads/tutor-image', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
+  uploadWorkshopImage: async (file: File): Promise<UploadResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post('/uploads/workshop-image', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
       },

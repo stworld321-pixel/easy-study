@@ -41,11 +41,20 @@ const MeetingRoom: React.FC = () => {
 
   const jitsiDomain = normalizeDomain(meetingAccess?.domain || (import.meta.env.VITE_JITSI_DOMAIN as string) || 'meet.jit.si');
   const roomName = meetingAccess?.room_name || '';
-  const meetingUrl = useMemo(() => {
-    if (meetingAccess?.launch_url) return meetingAccess.launch_url;
+  const externalMeetingUrl = useMemo(() => {
     if (meetingAccess?.meeting_url) return meetingAccess.meeting_url;
     return roomName ? `https://${jitsiDomain}/${roomName}` : '';
-  }, [meetingAccess?.launch_url, meetingAccess?.meeting_url, roomName, jitsiDomain]);
+  }, [meetingAccess?.meeting_url, roomName, jitsiDomain]);
+  const appMeetingUrl = useMemo(() => {
+    if (!booking?.id) return '';
+    return `${window.location.origin}/meeting/${booking.id}`;
+  }, [booking?.id]);
+
+  const sessionEndTime = useMemo(() => {
+    if (!booking?.scheduled_at) return null;
+    const start = new Date(booking.scheduled_at).getTime();
+    return start + ((booking.duration_minutes || 0) * 60_000);
+  }, [booking?.scheduled_at, booking?.duration_minutes]);
 
   useEffect(() => {
     const fetchBooking = async () => {
@@ -115,9 +124,17 @@ const MeetingRoom: React.FC = () => {
       });
 
       apiRef.current.addListener('videoConferenceLeft', () => {
+        const canOpenFeedback =
+          Boolean(booking?.status === 'completed') ||
+          (sessionEndTime !== null && Date.now() >= sessionEndTime - 60_000);
+
         if (user?.role === 'student') {
-          const bookingParam = booking?.id ? `&booking_id=${encodeURIComponent(booking.id)}` : '';
-          navigate(`/student/dashboard?tab=feedback&feedback_popup=1${bookingParam}`);
+          if (canOpenFeedback) {
+            const bookingParam = booking?.id ? `&booking_id=${encodeURIComponent(booking.id)}` : '';
+            navigate(`/student/dashboard?tab=feedback&feedback_popup=1${bookingParam}`);
+            return;
+          }
+          navigate('/student/dashboard?tab=sessions');
           return;
         }
         navigate('/tutor/dashboard?tab=bookings');
@@ -187,7 +204,7 @@ const MeetingRoom: React.FC = () => {
       apiRef.current?.dispose();
       apiRef.current = null;
     };
-  }, [booking, roomName, jitsiDomain, user?.email, user?.full_name, user?.role, navigate, meetingAccess?.jwt]);
+  }, [booking, roomName, jitsiDomain, user?.email, user?.full_name, user?.role, navigate, meetingAccess?.jwt, sessionEndTime]);
 
   if (loading) {
     return (
@@ -209,9 +226,9 @@ const MeetingRoom: React.FC = () => {
             <div>
               <h1 className="text-lg font-semibold text-gray-900">Unable to open session</h1>
               <p className="text-gray-600 mt-1">{error}</p>
-              {meetingUrl && (
+              {(appMeetingUrl || externalMeetingUrl) && (
                 <a
-                  href={meetingUrl}
+                  href={appMeetingUrl || externalMeetingUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors"

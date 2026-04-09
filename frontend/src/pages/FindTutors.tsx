@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Search, Star, MapPin, Verified,
-  X, SlidersHorizontal, GraduationCap, Users, Video,
+  X, SlidersHorizontal, GraduationCap, Video,
   ChevronDown, Sparkles, BookOpen, Globe, Heart
 } from 'lucide-react';
 import type { TutorProfile } from '../types';
@@ -12,19 +12,12 @@ import BookingModal from '../components/BookingModal';
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
 import { buildTutorSlug } from '../utils/tutorSeo';
-
-const subjects = [
-  'Mathematics', 'Physics', 'Chemistry', 'Biology', 'English',
-  'Computer Science', 'Data Science', 'Web Development', 'Python',
-  'Spanish', 'French', 'UI/UX Design'
-];
-
-const countries = [
-  'United States', 'United Kingdom', 'Canada', 'India', 'Australia',
-  'Germany', 'Spain', 'France', 'South Korea', 'Japan'
-];
-
-const languages = ['English', 'Spanish', 'French', 'German', 'Mandarin', 'Hindi', 'Korean'];
+import {
+  DEFAULT_COUNTRIES,
+  DEFAULT_LANGUAGES,
+  DEFAULT_SUBJECTS,
+  normalizeSearchTerm,
+} from '../utils/tutorSearch';
 
 // Enhanced Tutor Card Component
 const TutorCard: React.FC<{ tutor: TutorProfile; index: number; onBookSession: (tutor: TutorProfile) => void }> = ({ tutor, index, onBookSession }) => {
@@ -143,12 +136,6 @@ const TutorCard: React.FC<{ tutor: TutorProfile; index: number; onBookSession: (
                     1-on-1 Sessions
                   </div>
                 )}
-                {tutor.offers_group && (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm">
-                    <Users className="w-4 h-4" />
-                    Group Classes
-                  </div>
-                )}
               </div>
             </div>
 
@@ -176,16 +163,6 @@ const TutorCard: React.FC<{ tutor: TutorProfile; index: number; onBookSession: (
                     </div>
                     <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
                       <Video className="w-3 h-3" /> 1-on-1 /hr
-                    </div>
-                  </div>
-                )}
-                {tutor.offers_group && tutor.group_hourly_rate && (
-                  <div className="pt-1 border-t border-gray-100">
-                    <div className="text-lg font-bold text-secondary-600">
-                      {formatPrice(tutor.group_hourly_rate)}
-                    </div>
-                    <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
-                      <Users className="w-3 h-3" /> Group /hr
                     </div>
                   </div>
                 )}
@@ -261,7 +238,7 @@ const FindTutors: React.FC = () => {
   const [selectedSubject, setSelectedSubject] = useState(searchParams.get('subject') || '');
   const [selectedCountry, setSelectedCountry] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState('');
-  const [sessionType, setSessionType] = useState<'all' | 'private' | 'group'>('all');
+  const [sessionType, setSessionType] = useState<'all' | 'private'>('all');
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 200]);
   const [sortBy, setSortBy] = useState('rating');
 
@@ -441,7 +418,49 @@ const FindTutors: React.FC = () => {
     setSearchQuery('');
   };
 
-  const hasActiveFilters = selectedSubject || selectedCountry || selectedLanguage || sessionType !== 'all' || priceRange[0] > 0 || priceRange[1] < 200;
+  const dynamicSubjects = useMemo(() => {
+    const tutorSubjects = tutors.flatMap((tutor) => tutor.subjects || []);
+    return Array.from(new Set([...DEFAULT_SUBJECTS, ...tutorSubjects])).sort((a, b) => a.localeCompare(b));
+  }, [tutors]);
+
+  const dynamicCountries = useMemo(() => {
+    const tutorCountries = tutors.map((tutor) => tutor.country).filter(Boolean) as string[];
+    return Array.from(new Set([...DEFAULT_COUNTRIES, ...tutorCountries])).sort((a, b) => a.localeCompare(b));
+  }, [tutors]);
+
+  const dynamicLanguages = useMemo(() => {
+    const tutorLanguages = tutors.flatMap((tutor) => tutor.languages || []);
+    return Array.from(new Set([...DEFAULT_LANGUAGES, ...tutorLanguages])).sort((a, b) => a.localeCompare(b));
+  }, [tutors]);
+
+  const filteredTutors = useMemo(() => {
+    const normalizedQuery = normalizeSearchTerm(searchQuery);
+    if (!normalizedQuery) return tutors;
+
+    return tutors.filter((tutor) => {
+      const searchable = [
+        tutor.full_name,
+        tutor.headline,
+        tutor.bio,
+        ...(tutor.subjects || []),
+        ...(tutor.languages || []),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return searchable.includes(normalizedQuery);
+    });
+  }, [tutors, searchQuery]);
+
+  const hasActiveFilters =
+    !!searchQuery.trim() ||
+    !!selectedSubject ||
+    !!selectedCountry ||
+    !!selectedLanguage ||
+    sessionType !== 'all' ||
+    priceRange[0] > 0 ||
+    priceRange[1] < 200;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
@@ -505,7 +524,7 @@ const FindTutors: React.FC = () => {
                       className="w-full pl-12 pr-4 py-4 bg-gray-50 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 appearance-none cursor-pointer"
                     >
                       <option value="">All Subjects</option>
-                      {subjects.map((s) => (
+                      {dynamicSubjects.map((s) => (
                         <option key={s} value={s}>{s}</option>
                       ))}
                     </select>
@@ -548,8 +567,8 @@ const FindTutors: React.FC = () => {
               {/* Session Type */}
               <div className="mb-6">
                 <label className="block text-sm font-semibold text-gray-700 mb-3">Session Type</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['all', 'private', 'group'] as const).map((type) => (
+                <div className="grid grid-cols-2 gap-2">
+                  {(['all', 'private'] as const).map((type) => (
                     <button
                       key={type}
                       onClick={() => setSessionType(type)}
@@ -576,7 +595,7 @@ const FindTutors: React.FC = () => {
                     className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent appearance-none cursor-pointer"
                   >
                     <option value="">All Countries</option>
-                    {countries.map((c) => (
+                    {dynamicCountries.map((c) => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
@@ -595,7 +614,7 @@ const FindTutors: React.FC = () => {
                     className="w-full pl-10 pr-4 py-3 bg-gray-50 border border-gray-200 text-gray-900 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent appearance-none cursor-pointer"
                   >
                     <option value="">All Languages</option>
-                    {languages.map((l) => (
+                    {dynamicLanguages.map((l) => (
                       <option key={l} value={l}>{l}</option>
                     ))}
                   </select>
@@ -656,7 +675,7 @@ const FindTutors: React.FC = () => {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">
-                  {loading ? 'Finding tutors...' : `${tutors.length} Expert Tutors`}
+                  {loading ? 'Finding tutors...' : `${filteredTutors.length} Expert Tutors`}
                 </h2>
                 <p className="text-gray-500 text-sm mt-1">Matched to your learning needs</p>
               </div>
@@ -688,6 +707,9 @@ const FindTutors: React.FC = () => {
                   exit={{ opacity: 0, height: 0 }}
                   className="flex flex-wrap gap-2 mb-6"
                 >
+                  {searchQuery.trim() && (
+                    <FilterChip label={`Search: ${searchQuery.trim()}`} onRemove={() => setSearchQuery('')} />
+                  )}
                   {selectedSubject && (
                     <FilterChip label={selectedSubject} onRemove={() => setSelectedSubject('')} />
                   )}
@@ -721,7 +743,7 @@ const FindTutors: React.FC = () => {
                   </div>
                 ))}
               </div>
-            ) : tutors.length === 0 ? (
+            ) : filteredTutors.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
@@ -740,7 +762,7 @@ const FindTutors: React.FC = () => {
               </motion.div>
             ) : (
               <div className="space-y-6">
-                {tutors.map((tutor, index) => (
+                {filteredTutors.map((tutor, index) => (
                   <TutorCard
                     key={tutor.id}
                     tutor={tutor}

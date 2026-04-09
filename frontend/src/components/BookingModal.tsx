@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, ChevronLeft, ChevronRight, Clock, Calendar,
-  Video, Users, Check, AlertCircle, CreditCard
+  Video, Check, AlertCircle, CreditCard
 } from 'lucide-react';
 import { availabilityAPI, bookingsAPI, paymentsAPI } from '../services/api';
 import type { TutorProfile } from '../types';
@@ -92,18 +92,14 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [sessionType, setSessionType] = useState<'private' | 'group'>('private');
+  const [sessionType] = useState<'private'>('private');
   const [step, setStep] = useState<'date' | 'time' | 'confirm'>('date');
   const [booking, setBooking] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Get the base session price by session type and selected duration
-  const getSessionPrice = (type: 'private' | 'group'): number => {
+  const getSessionPrice = (): number => {
     const durationHours = (calendarSessionDuration || 60) / 60;
-    if (type === 'group') {
-      const groupHourly = tutor.group_hourly_rate || (tutor.hourly_rate * 0.6);
-      return Math.round(groupHourly * durationHours * 100) / 100;
-    }
     return Math.round(tutor.hourly_rate * durationHours * 100) / 100;
   };
 
@@ -218,6 +214,11 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const handleBooking = async () => {
     if (!user) {
       navigate('/login');
+      return;
+    }
+
+    if (user.role === 'tutor' && user.id === tutor.user_id) {
+      setMessage({ type: 'error', text: 'Tutors cannot book their own sessions.' });
       return;
     }
 
@@ -526,52 +527,17 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                 <div className="mb-6">
                   <label className="block text-sm font-semibold text-gray-700 mb-3">Session Type</label>
                   <div className="grid grid-cols-2 gap-3">
-                    {tutor.offers_private && (
-                      <button
-                        onClick={() => {
-                          setSessionType('private');
-                          setSelectedDate(null);
-                          setSelectedTime(null);
-                          setStep('date');
-                        }}
-                        className={`p-4 rounded-xl border-2 transition-all flex items-center gap-3 ${
-                          sessionType === 'private'
-                            ? 'border-primary-500 bg-primary-50'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <Video className={`w-5 h-5 ${sessionType === 'private' ? 'text-primary-600' : 'text-gray-400'}`} />
-                        <div className="text-left">
-                          <div className={`font-medium ${sessionType === 'private' ? 'text-primary-900' : 'text-gray-900'}`}>
-                            1-on-1
-                          </div>
-                          <div className="text-xs text-gray-500">{formatPrice(getSessionPrice('private'))}/hr</div>
+                    <button
+                      className="p-4 rounded-xl border-2 transition-all flex items-center gap-3 border-primary-500 bg-primary-50"
+                    >
+                      <Video className="w-5 h-5 text-primary-600" />
+                      <div className="text-left">
+                        <div className="font-medium text-primary-900">
+                          1-on-1
                         </div>
-                      </button>
-                    )}
-                    {tutor.offers_group && (
-                      <button
-                        onClick={() => {
-                          setSessionType('group');
-                          setSelectedDate(null);
-                          setSelectedTime(null);
-                          setStep('date');
-                        }}
-                        className={`p-4 rounded-xl border-2 transition-all flex items-center gap-3 ${
-                          sessionType === 'group'
-                            ? 'border-primary-500 bg-primary-50'
-                            : 'border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        <Users className={`w-5 h-5 ${sessionType === 'group' ? 'text-primary-600' : 'text-gray-400'}`} />
-                        <div className="text-left">
-                          <div className={`font-medium ${sessionType === 'group' ? 'text-primary-900' : 'text-gray-900'}`}>
-                            Group
-                          </div>
-                          <div className="text-xs text-gray-500">{formatPrice(getSessionPrice('group'))}/hr</div>
-                        </div>
-                      </button>
-                    )}
+                        <div className="text-xs text-gray-500">{formatPrice(getSessionPrice())}/hr</div>
+                      </div>
+                    </button>
                   </div>
                 </div>
 
@@ -749,7 +715,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                     <div className="flex items-center justify-between border-t border-gray-200 pt-4">
                       <span className="text-gray-600">Session Price</span>
                       <span className="font-medium text-gray-900">
-                        {formatPrice(getSessionPrice(sessionType))}
+                        {formatPrice(getSessionPrice())}
                       </span>
                     </div>
                     <div className="flex items-center justify-between">
@@ -757,13 +723,13 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                         Platform Fee ({(studentPlatformFeeRate * 100).toFixed(2)}%)
                       </span>
                       <span className="font-medium text-gray-900">
-                        {formatPrice(getPlatformFee(getSessionPrice(sessionType)))}
+                        {formatPrice(getPlatformFee(getSessionPrice()))}
                       </span>
                     </div>
                     <div className="border-t border-gray-200 pt-4 flex items-center justify-between">
                       <span className="text-gray-900 font-semibold">Total</span>
                       <span className="text-2xl font-bold text-primary-600">
-                        {formatPrice(getStudentPayable(getSessionPrice(sessionType)))}
+                        {formatPrice(getStudentPayable(getSessionPrice()))}
                       </span>
                     </div>
                   </div>

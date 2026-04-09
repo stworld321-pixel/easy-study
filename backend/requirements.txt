@@ -18,3 +18,4 @@ minio==7.2.20
 httpx==0.28.1
 reportlab==4.2.5
 Pillow==11.2.1
+firebase-admin==6.8.0

@@ -34,20 +34,17 @@ const Navbar: React.FC = () => {
             <Link to="/" className="text-gray-700 hover:text-primary-600 font-medium transition-colors">
               Home
             </Link>
+            <Link to="/about" className="text-gray-700 hover:text-primary-600 font-medium transition-colors">
+              About Us
+            </Link>
             <Link to="/find-tutors" className="text-gray-700 hover:text-primary-600 font-medium transition-colors">
               Find Tutors
             </Link>
-            <Link to="/how-it-works" className="text-gray-700 hover:text-primary-600 font-medium transition-colors">
-              How It Works
-            </Link>
-            <Link to="/about" className="text-gray-700 hover:text-primary-600 font-medium transition-colors">
-              About
+            <Link to="/workshops" className="text-gray-700 hover:text-primary-600 font-medium transition-colors">
+              Workshop
             </Link>
             <Link to="/blog" className="text-gray-700 hover:text-primary-600 font-medium transition-colors">
-              Blog
-            </Link>
-            <Link to="/faqs" className="text-gray-700 hover:text-primary-600 font-medium transition-colors">
-              FAQs
+              Blogs
             </Link>
           </div>
 
@@ -154,20 +151,17 @@ const Navbar: React.FC = () => {
               <Link to="/" className="text-gray-700 hover:text-primary-600 font-medium py-2" onClick={() => setIsOpen(false)}>
                 Home
               </Link>
+              <Link to="/about" className="text-gray-700 hover:text-primary-600 font-medium py-2" onClick={() => setIsOpen(false)}>
+                About Us
+              </Link>
               <Link to="/find-tutors" className="text-gray-700 hover:text-primary-600 font-medium py-2" onClick={() => setIsOpen(false)}>
                 Find Tutors
               </Link>
-              <Link to="/how-it-works" className="text-gray-700 hover:text-primary-600 font-medium py-2" onClick={() => setIsOpen(false)}>
-                How It Works
-              </Link>
-              <Link to="/about" className="text-gray-700 hover:text-primary-600 font-medium py-2" onClick={() => setIsOpen(false)}>
-                About
+              <Link to="/workshops" className="text-gray-700 hover:text-primary-600 font-medium py-2" onClick={() => setIsOpen(false)}>
+                Workshop
               </Link>
               <Link to="/blog" className="text-gray-700 hover:text-primary-600 font-medium py-2" onClick={() => setIsOpen(false)}>
-                Blog
-              </Link>
-              <Link to="/faqs" className="text-gray-700 hover:text-primary-600 font-medium py-2" onClick={() => setIsOpen(false)}>
-                FAQs
+                Blogs
               </Link>
               <div className="pt-4 border-t border-gray-100 flex flex-col space-y-3">
                 {user ? (

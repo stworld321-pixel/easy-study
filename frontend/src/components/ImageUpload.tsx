@@ -6,7 +6,7 @@ import { uploadAPI } from '../services/api';
 interface ImageUploadProps {
   currentImage?: string | null;
   onUploadSuccess: (url: string) => void;
-  type?: 'avatar' | 'tutor';
+  type?: 'avatar' | 'tutor' | 'workshop';
   className?: string;
 }
 
@@ -50,7 +50,9 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
     try {
       const response = type === 'tutor'
         ? await uploadAPI.uploadTutorImage(file)
-        : await uploadAPI.uploadAvatar(file);
+        : type === 'workshop'
+          ? await uploadAPI.uploadWorkshopImage(file)
+          : await uploadAPI.uploadAvatar(file);
 
       if (response.success) {
         setMessage({ type: 'success', text: 'Image uploaded successfully!' });

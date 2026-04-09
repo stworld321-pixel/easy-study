@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_ID: str = ""  # For OAuth verification (set in .env)
     GOOGLE_CLIENT_SECRET: str = ""  # Google OAuth client secret (set in .env)
     GOOGLE_REDIRECT_URI: Optional[str] = None  # Optional hardcoded OAuth callback URI
+    FIREBASE_PROJECT_ID: Optional[str] = None
+    FIREBASE_SERVICE_ACCOUNT_FILE: Optional[str] = None
+    FIREBASE_SERVICE_ACCOUNT_JSON: Optional[str] = None
+    FIREBASE_WEB_API_KEY: Optional[str] = None
 
     # Email/SMTP Settings
     MAIL_HOST: str = Field(
@@ -53,7 +57,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("MAIL_FROM_ADDRESS", "FROM_EMAIL"),
     )
     MAIL_FROM_NAME: str = "Zeal Catalyst"
-    MAIL_USE_SSL: bool = True  # Port 465 uses SSL
+    MAIL_USE_SSL: Optional[bool] = None  # Auto-detect from port unless explicitly set
 
     # Razorpay Settings
     RAZORPAY_KEY_ID: str = ""

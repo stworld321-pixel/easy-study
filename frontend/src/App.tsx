@@ -23,6 +23,9 @@ import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
 import MeetingRoom from './pages/MeetingRoom';
 import PaymentThankYou from './pages/PaymentThankYou';
+import SetPassword from './pages/SetPassword';
+import Workshops from './pages/Workshops';
+import WorkshopDetail from './pages/WorkshopDetail';
 
 const ProtectedRoute = ({ children, role }: { children: ReactNode; role?: 'student' | 'tutor' | 'admin' }) => {
   const { user, isLoading } = useAuth();
@@ -54,12 +57,16 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/find-tutors" element={<FindTutors />} />
+              <Route path="/workshops" element={<Workshops />} />
+              <Route path="/workshops/:workshopId" element={<WorkshopDetail />} />
               <Route path="/tutors/:slug" element={<TutorProfile />} />
               <Route path="/how-it-works" element={<HowItWorks />} />
               <Route path="/about" element={<About />} />
               <Route path="/faqs" element={<FAQs />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/set-password" element={<SetPassword />} />
+              <Route path="/forgot-password" element={<SetPassword />} />
               <Route
                 path="/tutor/dashboard"
                 element={

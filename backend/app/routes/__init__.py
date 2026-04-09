@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.routes import auth, tutors, bookings, subjects, availability, admin, notifications, payments, blog, withdrawals, uploads, materials, messages, seo
+from app.routes import auth, tutors, bookings, subjects, availability, admin, notifications, payments, blog, withdrawals, uploads, materials, messages, seo, workshops
 
 api_router = APIRouter()
 
@@ -17,3 +17,4 @@ api_router.include_router(uploads.router, tags=["Uploads"])
 api_router.include_router(materials.router, tags=["Materials & Ratings"])
 api_router.include_router(messages.router, tags=["Messages"])
 api_router.include_router(seo.router, tags=["SEO"])
+api_router.include_router(workshops.router, prefix="/workshops", tags=["Workshops"])
