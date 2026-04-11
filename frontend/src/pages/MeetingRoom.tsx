@@ -5,21 +5,25 @@ import { bookingsAPI, type BookingResponse, type MeetingAccessResponse } from '.
 import { useAuth } from '../context/AuthContext';
 import { isMeetingExpired } from '../utils/jitsiMeeting';
 
-declare global {
-  interface Window {
-    JitsiMeetExternalAPI?: new (domain: string, options: Record<string, unknown>) => {
-      addListener: (event: string, callback: () => void) => void;
-      executeCommand: (command: string, ...args: unknown[]) => void;
-      dispose: () => void;
-    };
-  }
-}
+type JitsiParticipantInfo = {
+  participantId?: string;
+  displayName?: string;
+  email?: string;
+  role?: string;
+};
 
 type JitsiApiInstance = {
-  addListener: (event: string, callback: () => void) => void;
+  addListener: (event: string, callback: (...args: unknown[]) => void) => void;
   executeCommand: (command: string, ...args: unknown[]) => void;
+  getParticipantsInfo?: () => JitsiParticipantInfo[];
   dispose: () => void;
 };
+
+declare global {
+  interface Window {
+    JitsiMeetExternalAPI?: new (domain: string, options: Record<string, unknown>) => JitsiApiInstance;
+  }
+}
 
 const MeetingRoom: React.FC = () => {
   const { bookingId } = useParams<{ bookingId: string }>();
@@ -205,6 +209,74 @@ const MeetingRoom: React.FC = () => {
         navigate('/tutor/dashboard?tab=bookings');
       });
 
+      // Moderator hand-back: on meet.jit.si the JWT moderator claim is
+      // only advisory, so if the tutor drops off the call and reconnects
+      // Jitsi leaves them as a regular participant (whoever took over
+      // — usually a student — keeps the admin rights). We paper over
+      // that by having every client watch for the tutor joining (by
+      // email match) and calling `grantModerator` on them. The grant
+      // only succeeds when issued by the current moderator, so whichever
+      // client happens to hold that role at the moment the tutor
+      // rejoins will hand it back automatically. Tutors on JaaS get
+      // moderator enforced server-side, so this is a no-op there.
+      const tutorEmail = (meetingAccess?.tutor_email || '').trim().toLowerCase();
+
+      const isTutorParticipant = (info: JitsiParticipantInfo | undefined): boolean => {
+        if (!info || !tutorEmail) return false;
+        return (info.email || '').trim().toLowerCase() === tutorEmail;
+      };
+
+      const findParticipantById = (id: string): JitsiParticipantInfo | undefined => {
+        try {
+          const list = apiRef.current?.getParticipantsInfo?.() || [];
+          return list.find((p) => p.participantId === id);
+        } catch {
+          return undefined;
+        }
+      };
+
+      const promoteIfTutor = (participantId: string, attempt = 0) => {
+        const info = findParticipantById(participantId);
+        // `participantJoined` can fire before the participant's email
+        // metadata has propagated. Retry a few times before giving up.
+        if (!info || !info.email) {
+          if (attempt < 5) {
+            setTimeout(() => promoteIfTutor(participantId, attempt + 1), 600);
+          }
+          return;
+        }
+        if (!isTutorParticipant(info)) return;
+        if ((info.role || '').toLowerCase() === 'moderator') return;
+        try {
+          apiRef.current?.executeCommand('grantModerator', participantId);
+        } catch {
+          // Silently ignore — only the current moderator can grant;
+          // the other non-moderator clients will no-op here.
+        }
+      };
+
+      if (tutorEmail) {
+        apiRef.current.addListener('participantJoined', (...args: unknown[]) => {
+          const payload = args[0] as { id?: string } | undefined;
+          if (payload?.id) {
+            // Small delay so the server has registered the new participant
+            // before we try to grant — grantModerator is a no-op on
+            // unknown ids.
+            setTimeout(() => promoteIfTutor(payload.id as string), 400);
+          }
+        });
+
+        apiRef.current.addListener('participantRoleChanged', (...args: unknown[]) => {
+          const payload = args[0] as { id?: string; role?: string } | undefined;
+          if (!payload?.id) return;
+          if ((payload.role || '').toLowerCase() === 'moderator') return;
+          // Tutor was downgraded (or is still a regular participant).
+          // Try to promote them again; if we're the current moderator
+          // this succeeds, otherwise it's silently ignored.
+          promoteIfTutor(payload.id);
+        });
+      }
+
       // Safety: if tutor is moderator and lobby is enabled, disable it to prevent student waiting issues.
       if (meetingAccess?.is_moderator) {
         apiRef.current.addListener('lobbyEnabled', ((payload: unknown) => {
@@ -269,7 +341,7 @@ const MeetingRoom: React.FC = () => {
       apiRef.current?.dispose();
       apiRef.current = null;
     };
-  }, [booking, roomName, jitsiDomain, user?.email, user?.full_name, user?.role, navigate, meetingAccess?.jwt, sessionEndTime]);
+  }, [booking, roomName, jitsiDomain, user?.email, user?.full_name, user?.role, navigate, meetingAccess?.jwt, meetingAccess?.tutor_email, meetingAccess?.is_moderator, sessionEndTime]);
 
   if (loading) {
     return (
