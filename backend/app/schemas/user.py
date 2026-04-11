@@ -2,6 +2,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
 from datetime import datetime
 from app.models.user import UserRole
+from app.schemas.booking import UtcDatetime
 
 class UserCreate(BaseModel):
     email: EmailStr
@@ -33,7 +34,7 @@ class UserResponse(BaseModel):
     avatar: Optional[str] = None
     is_active: bool
     is_verified: bool
-    created_at: datetime
+    created_at: UtcDatetime
 
 class Token(BaseModel):
     access_token: str

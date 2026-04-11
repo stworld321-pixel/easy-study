@@ -6,10 +6,38 @@ import smtplib
 import ssl
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import Optional, List
-from datetime import datetime
+from typing import Optional, List, Tuple
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 import asyncio
 from app.core.config import settings
+
+
+def format_local_datetime(
+    dt: datetime,
+    tz_name: Optional[str] = None,
+) -> Tuple[str, str, str]:
+    """Render a stored datetime in a target IANA timezone.
+
+    Our storage convention is that naive datetimes are UTC. This helper
+    turns a stored value into a `(date_str, time_str, zone_label)` triple
+    so email templates can show "Jan 15, 2026 at 02:00 PM IST" instead of
+    an ambiguous "Jan 15, 2026 at 08:30 AM" that leaves the reader
+    guessing which zone the clock is in.
+    """
+    zone_name = (tz_name or "UTC").strip() or "UTC"
+    try:
+        zone = ZoneInfo(zone_name)
+    except Exception:
+        zone = timezone.utc
+        zone_name = "UTC"
+    aware = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    local = aware.astimezone(zone)
+    return (
+        local.strftime("%B %d, %Y"),
+        local.strftime("%I:%M %p"),
+        zone_name,
+    )
 
 
 class EmailService:
@@ -197,11 +225,12 @@ class EmailService:
         subject_name: str,
         scheduled_at: datetime,
         is_new_booking: bool = True,
-        is_for_tutor: bool = True
+        is_for_tutor: bool = True,
+        timezone_name: Optional[str] = None,
     ) -> bool:
         """Send booking notification email."""
-        formatted_date = scheduled_at.strftime("%B %d, %Y")
-        formatted_time = scheduled_at.strftime("%I:%M %p")
+        formatted_date, formatted_time, tz_label = format_local_datetime(scheduled_at, timezone_name)
+        formatted_time = f"{formatted_time} {tz_label}"
 
         if is_new_booking:
             if is_for_tutor:
@@ -278,11 +307,12 @@ Zeal Catalyst Team
         tutor_name: str,
         subject_name: str,
         scheduled_at: datetime,
-        meeting_link: Optional[str] = None
+        meeting_link: Optional[str] = None,
+        timezone_name: Optional[str] = None,
     ) -> bool:
         """Send booking confirmation email to student."""
-        formatted_date = scheduled_at.strftime("%B %d, %Y")
-        formatted_time = scheduled_at.strftime("%I:%M %p")
+        formatted_date, formatted_time, tz_label = format_local_datetime(scheduled_at, timezone_name)
+        formatted_time = f"{formatted_time} {tz_label}"
 
         meeting_section = ""
         if meeting_link:
@@ -366,11 +396,12 @@ Zeal Catalyst Team
         recipient_name: str,
         cancelled_by: str,
         subject_name: str,
-        scheduled_at: datetime
+        scheduled_at: datetime,
+        timezone_name: Optional[str] = None,
     ) -> bool:
         """Send booking cancellation email."""
-        formatted_date = scheduled_at.strftime("%B %d, %Y")
-        formatted_time = scheduled_at.strftime("%I:%M %p")
+        formatted_date, formatted_time, tz_label = format_local_datetime(scheduled_at, timezone_name)
+        formatted_time = f"{formatted_time} {tz_label}"
 
         content = f"""
             <h2 style="color: #1f2937; margin: 0 0 20px; font-size: 24px;">Booking Cancelled</h2>
@@ -571,10 +602,11 @@ Zeal Catalyst Team
         platform_fee: float,
         total_paid: float,
         razorpay_payment_id: Optional[str] = None,
+        timezone_name: Optional[str] = None,
     ) -> bool:
         """Send paid invoice email to student after successful payment verification."""
-        formatted_date = scheduled_at.strftime("%B %d, %Y")
-        formatted_time = scheduled_at.strftime("%I:%M %p")
+        formatted_date, formatted_time, tz_label = format_local_datetime(scheduled_at, timezone_name)
+        formatted_time = f"{formatted_time} {tz_label}"
         issued_at = datetime.utcnow().strftime("%B %d, %Y %I:%M %p UTC")
 
         content = f"""
@@ -701,10 +733,11 @@ Zeal Catalyst Team
         subject_name: str,
         scheduled_at: datetime,
         meeting_link: Optional[str] = None,
+        timezone_name: Optional[str] = None,
     ) -> bool:
         """Send confirmation summary mail to tutor once session is confirmed."""
-        formatted_date = scheduled_at.strftime("%B %d, %Y")
-        formatted_time = scheduled_at.strftime("%I:%M %p")
+        formatted_date, formatted_time, tz_label = format_local_datetime(scheduled_at, timezone_name)
+        formatted_time = f"{formatted_time} {tz_label}"
         meeting_text = f"Meeting: {meeting_link}\n" if meeting_link else ""
         meeting_line = (
             f"<tr><td style='color:#6b7280; font-size:14px; padding:4px 0;'>Meeting Link:</td>"
@@ -756,10 +789,11 @@ Zeal Catalyst Team
         currency: str,
         amount: float,
         eta_text: str = "2 to 4 business days",
+        timezone_name: Optional[str] = None,
     ) -> bool:
         """Send refund processing email for cancelled paid sessions."""
-        formatted_date = scheduled_at.strftime("%B %d, %Y")
-        formatted_time = scheduled_at.strftime("%I:%M %p")
+        formatted_date, formatted_time, tz_label = format_local_datetime(scheduled_at, timezone_name)
+        formatted_time = f"{formatted_time} {tz_label}"
         content = f"""
             <h2 style="color:#1f2937; margin:0 0 20px; font-size:24px;">Refund Initiated</h2>
             <p style="color:#4b5563; font-size:16px;">Hi {student_name},</p>

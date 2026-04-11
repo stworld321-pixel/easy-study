@@ -10,6 +10,7 @@ from app.models.message import Conversation, Message
 from app.routes.auth import get_current_user
 from app.services.notification_service import notification_service
 from app.models.notification import NotificationType
+from app.schemas.booking import UtcDatetime
 
 router = APIRouter(prefix="/messages", tags=["Messages"])
 
@@ -33,9 +34,9 @@ class ConversationResponse(BaseModel):
     tutor_id: str
     student_name: str
     tutor_name: str
-    last_message_at: Optional[datetime] = None
+    last_message_at: Optional[UtcDatetime] = None
     last_message_preview: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class MessageResponse(BaseModel):
@@ -45,7 +46,7 @@ class MessageResponse(BaseModel):
     sender_role: str
     sender_name: str
     content: str
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 async def _require_admin(current_user: User = Depends(get_current_user)) -> User:
