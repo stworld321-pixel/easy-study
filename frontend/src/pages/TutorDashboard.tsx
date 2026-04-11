@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { tutorsAPI, availabilityAPI, bookingsAPI, withdrawalAPI, materialsAPI, uploadAPI, workshopsAPI, paymentsAPI } from '../services/api';
 import ImageUpload from '../components/ImageUpload';
 import ChatInbox from '../components/ChatInbox';
+import { isVideoUrl } from '../utils/media';
 import type { TutorProfile } from '../types';
 import type { AvailabilitySettings, WeeklySchedule, TimeSlot, CalendarDay, BlockedDate, BookingResponse, TutorStats, WithdrawalResponse, MaterialResponse, AssignmentResponse, RatingResponse, BookedStudent, WorkshopResponse, WorkshopCreateInput, TutorPaymentListItem } from '../services/api';
 
@@ -83,7 +84,7 @@ const TutorDashboard: React.FC = () => {
 
   // Bookings state
   const [bookings, setBookings] = useState<BookingResponse[]>([]);
-  const [bookingView, setBookingView] = useState<'upcoming' | 'private' | 'finished' | 'cancelled'>('upcoming');
+  const [bookingView, setBookingView] = useState<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled'>('upcoming');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [editingMeetLink, setEditingMeetLink] = useState<string | null>(null);
   const [meetLinkInput, setMeetLinkInput] = useState('');
@@ -815,18 +816,20 @@ const TutorDashboard: React.FC = () => {
   const sortedBookings = [...bookings].sort(
     (a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
   );
-  const bookingViews: Record<'upcoming' | 'private' | 'finished' | 'cancelled', BookingResponse[]> = {
+  const bookingViews: Record<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled', BookingResponse[]> = {
     upcoming: sortedBookings.filter(
       b => new Date(b.scheduled_at) >= now && (b.status === 'pending' || b.status === 'confirmed')
     ),
     private: sortedBookings.filter(b => b.session_type === 'private' && b.status !== 'cancelled'),
+    group: sortedBookings.filter(b => (b.session_type === 'group' || b.is_workshop) && b.status !== 'cancelled'),
     finished: sortedBookings.filter(b => b.status === 'completed' || (new Date(b.scheduled_at) < now && b.status === 'confirmed')),
     cancelled: sortedBookings.filter(b => b.status === 'cancelled'),
   };
   const currentBookings = bookingViews[bookingView];
-  const bookingViewLabels: Record<'upcoming' | 'private' | 'finished' | 'cancelled', string> = {
+  const bookingViewLabels: Record<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled', string> = {
     upcoming: 'Upcoming Sessions',
     private: 'Private Sessions',
+    group: 'Group / Workshop Sessions',
     finished: 'Finished Sessions',
     cancelled: 'Cancelled Sessions',
   };
@@ -1716,9 +1719,10 @@ const TutorDashboard: React.FC = () => {
               </h3>
 
               <div className="mb-4 flex flex-wrap gap-2">
-                {[
+                {[ 
                   { key: 'upcoming', label: 'Upcoming' },
                   { key: 'private', label: 'Private' },
+                  { key: 'group', label: 'Group' },
                   { key: 'finished', label: 'Finished' },
                   { key: 'cancelled', label: 'Cancelled' },
                 ].map(view => (
@@ -2062,7 +2066,7 @@ const TutorDashboard: React.FC = () => {
                 )}
 
                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Workshop Thumbnail</p>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Workshop Media</p>
                   <ImageUpload
                     type="workshop"
                     currentImage={workshopForm.thumbnail_url}
@@ -2107,7 +2111,17 @@ const TutorDashboard: React.FC = () => {
                           )}
                         </div>
                         {workshop.thumbnail_url && (
-                          <img src={workshop.thumbnail_url} alt={workshop.title} className="w-20 h-20 rounded-lg object-cover border border-gray-200" />
+                          isVideoUrl(workshop.thumbnail_url) ? (
+                            <video
+                              src={workshop.thumbnail_url}
+                              className="w-20 h-20 rounded-lg object-cover border border-gray-200"
+                              muted
+                              playsInline
+                              preload="metadata"
+                            />
+                          ) : (
+                            <img src={workshop.thumbnail_url} alt={workshop.title} className="w-20 h-20 rounded-lg object-cover border border-gray-200" />
+                          )
                         )}
                       </div>
                       <div className="flex gap-2 mt-3">

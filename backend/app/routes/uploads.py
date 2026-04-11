@@ -13,6 +13,19 @@ from app.routes.auth import get_current_user
 from app.services.minio_service import minio_service
 
 router = APIRouter(prefix="/uploads", tags=["Uploads"])
+WORKSHOP_MEDIA_MAX_BYTES = 10 * 1024 * 1024
+WORKSHOP_ALLOWED_IMAGE_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/gif",
+    "image/webp",
+}
+WORKSHOP_ALLOWED_VIDEO_TYPES = {
+    "video/mp4",
+    "video/webm",
+    "video/ogg",
+    "video/quicktime",
+}
 
 
 def _remove_signature_background(file_data: bytes) -> bytes:
@@ -180,22 +193,32 @@ async def upload_workshop_image(
     file_data = await file.read()
     if len(file_data) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
+    if len(file_data) > WORKSHOP_MEDIA_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="Workshop media must be 10MB or smaller")
 
-    result = minio_service.upload_image(
+    content_type = (file.content_type or "").lower()
+    if content_type not in WORKSHOP_ALLOWED_IMAGE_TYPES | WORKSHOP_ALLOWED_VIDEO_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail="Workshop media must be an image (JPG, PNG, GIF, WebP) or video (MP4, WebM, OGG, MOV).",
+        )
+
+    result = minio_service.upload_bytes(
         file_data=file_data,
         filename=file.filename or "workshop.jpg",
-        folder="workshops"
+        folder="workshops",
+        content_type=content_type or "application/octet-stream",
     )
 
     if not result:
-        raise HTTPException(status_code=500, detail="Failed to upload image")
+        raise HTTPException(status_code=500, detail="Failed to upload workshop media")
     if "error" in result:
         raise HTTPException(status_code=400, detail=result["error"])
 
     return {
         "success": True,
         "url": result["url"],
-        "message": "Workshop image uploaded successfully"
+        "message": "Workshop media uploaded successfully"
     }
 
 

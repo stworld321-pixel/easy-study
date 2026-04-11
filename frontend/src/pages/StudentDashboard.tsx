@@ -22,6 +22,7 @@ const StudentDashboard: React.FC = () => {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [mainTab, setMainTab] = useState<'sessions' | 'materials' | 'feedback' | 'messages'>('sessions');
   const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming');
+  const [sessionTypeFilter, setSessionTypeFilter] = useState<'all' | 'private' | 'group'>('all');
   const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // New state for materials and feedback
@@ -219,6 +220,13 @@ const StudentDashboard: React.FC = () => {
     .filter(b => b.status === 'cancelled' || new Date(b.scheduled_at) < now)
     .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
 
+  const isGroupBooking = (booking: BookingResponse) => booking.is_workshop || booking.session_type === 'group';
+  const filteredBookings = (activeTab === 'upcoming' ? upcomingBookings : pastBookings).filter((booking) => {
+    if (sessionTypeFilter === 'private') return !isGroupBooking(booking);
+    if (sessionTypeFilter === 'group') return isGroupBooking(booking);
+    return true;
+  });
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 pt-24 flex items-center justify-center">
@@ -350,17 +358,37 @@ const StudentDashboard: React.FC = () => {
           </button>
         </div>
 
+        <div className="flex flex-wrap gap-2 mb-6">
+          {[
+            { id: 'all', label: 'All Sessions' },
+            { id: 'private', label: 'Private' },
+            { id: 'group', label: 'Group / Workshop' },
+          ].map((filter) => (
+            <button
+              key={filter.id}
+              onClick={() => setSessionTypeFilter(filter.id as typeof sessionTypeFilter)}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                sessionTypeFilter === filter.id
+                  ? 'bg-primary-600 text-white shadow-lg shadow-primary-500/25'
+                  : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+              }`}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
+
         {/* Bookings List */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="space-y-4"
         >
-          {(activeTab === 'upcoming' ? upcomingBookings : pastBookings).length === 0 ? (
+          {filteredBookings.length === 0 ? (
             <div className="bg-white rounded-2xl border border-gray-100 p-12 shadow-sm text-center">
               <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                No {activeTab} sessions
+                No {sessionTypeFilter === 'all' ? activeTab : sessionTypeFilter} sessions
               </h3>
               <p className="text-gray-500">
                 {activeTab === 'upcoming'
@@ -369,7 +397,7 @@ const StudentDashboard: React.FC = () => {
               </p>
             </div>
           ) : (
-            (activeTab === 'upcoming' ? upcomingBookings : pastBookings).map(booking => (
+            filteredBookings.map(booking => (
               (() => {
                 const bookingState = booking.is_workshop
                   ? getWorkshopBookingState(booking)

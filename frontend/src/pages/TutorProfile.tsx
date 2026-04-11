@@ -574,18 +574,6 @@ const TutorProfile: React.FC = () => {
                     <div className="text-gray-500 text-sm">per hour</div>
                   </div>
                 )}
-                {tutor.offers_group && tutor.group_hourly_rate && (
-                  <div className="text-center p-4 bg-secondary-50 rounded-xl border border-secondary-100">
-                    <div className="flex items-center justify-center gap-2 text-sm text-secondary-600 font-medium mb-1">
-                      <Users className="w-4 h-4" />
-                      Group Session
-                    </div>
-                    <div className="text-2xl font-bold text-secondary-600">
-                      {formatPrice(tutor.group_hourly_rate)}
-                    </div>
-                    <div className="text-gray-500 text-sm">per hour</div>
-                  </div>
-                )}
               </div>
 
               {/* Session Types */}

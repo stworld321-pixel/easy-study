@@ -4,7 +4,7 @@ import { Calendar, Clock3, Search, Users } from 'lucide-react';
 import { workshopsAPI } from '../services/api';
 import type { WorkshopResponse } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
-import { DEMO_WORKSHOP } from '../utils/demoWorkshop';
+import { isVideoUrl } from '../utils/media';
 
 const Workshops: React.FC = () => {
   const [workshops, setWorkshops] = useState<WorkshopResponse[]>([]);
@@ -20,23 +20,16 @@ const Workshops: React.FC = () => {
       try {
         const upcoming = await workshopsAPI.getPublicWorkshops({ upcoming_only: true, limit: 100 });
         const upcomingList = Array.isArray(upcoming) ? upcoming : [];
-
         if (upcomingList.length > 0) {
-          setWorkshops(
-            upcomingList.some((w) => w.id === DEMO_WORKSHOP.id)
-              ? upcomingList
-              : [DEMO_WORKSHOP, ...upcomingList]
-          );
+          setWorkshops(upcomingList);
         } else {
-          // Fallback: show active workshops even if schedule is in the past/timezone mismatch.
           const allActive = await workshopsAPI.getPublicWorkshops({ upcoming_only: false, limit: 100 });
           const list = Array.isArray(allActive) ? allActive : [];
-          setWorkshops(list.some((w) => w.id === DEMO_WORKSHOP.id) ? list : [DEMO_WORKSHOP, ...list]);
+          setWorkshops(list);
         }
       } catch {
-        // Still show demo workshop when API is unavailable.
-        setWorkshops([DEMO_WORKSHOP]);
-        setError('');
+        setWorkshops([]);
+        setError('Failed to load workshops.');
       } finally {
         setLoading(false);
       }
@@ -92,7 +85,17 @@ const Workshops: React.FC = () => {
               <div key={workshop.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow">
                 <div className="aspect-[16/9] bg-gray-100">
                   {workshop.thumbnail_url ? (
-                    <img src={workshop.thumbnail_url} alt={workshop.title} className="w-full h-full object-cover" />
+                    isVideoUrl(workshop.thumbnail_url) ? (
+                      <video
+                        src={workshop.thumbnail_url}
+                        className="w-full h-full object-cover"
+                        controls
+                        playsInline
+                        preload="metadata"
+                      />
+                    ) : (
+                      <img src={workshop.thumbnail_url} alt={workshop.title} className="w-full h-full object-cover" />
+                    )
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-400">No image</div>
                   )}

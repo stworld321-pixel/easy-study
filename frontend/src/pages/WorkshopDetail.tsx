@@ -5,7 +5,7 @@ import { bookingsAPI, paymentsAPI, workshopsAPI } from '../services/api';
 import type { WorkshopResponse } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
-import { DEMO_WORKSHOP, DEMO_WORKSHOP_ID } from '../utils/demoWorkshop';
+import { isVideoUrl } from '../utils/media';
 
 interface RazorpayOptions {
   key: string;
@@ -54,12 +54,6 @@ const WorkshopDetail: React.FC = () => {
         return;
       }
 
-      if (workshopId === DEMO_WORKSHOP_ID) {
-        setWorkshop(DEMO_WORKSHOP);
-        setLoading(false);
-        return;
-      }
-
       setLoading(true);
       setError('');
       try {
@@ -86,11 +80,6 @@ const WorkshopDetail: React.FC = () => {
           message: 'Please login to book this workshop',
         },
       });
-      return;
-    }
-
-    if (!workshop.tutor_id) {
-      setActionMessage({ type: 'error', text: 'This workshop is a demo listing and cannot be booked.' });
       return;
     }
 
@@ -239,7 +228,17 @@ const WorkshopDetail: React.FC = () => {
         <div className="mt-4 bg-white rounded-2xl border border-gray-200 overflow-hidden">
           <div className="aspect-[16/8] bg-gray-100">
             {workshop.thumbnail_url ? (
-              <img src={workshop.thumbnail_url} alt={workshop.title} className="w-full h-full object-cover" />
+              isVideoUrl(workshop.thumbnail_url) ? (
+                <video
+                  src={workshop.thumbnail_url}
+                  className="w-full h-full object-cover"
+                  controls
+                  playsInline
+                  preload="metadata"
+                />
+              ) : (
+                <img src={workshop.thumbnail_url} alt={workshop.title} className="w-full h-full object-cover" />
+              )
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-400">No image</div>
             )}

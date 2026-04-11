@@ -20,19 +20,39 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
   const [dragActive, setDragActive] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewKind, setPreviewKind] = useState<'image' | 'video'>('image');
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isVideoFile = (file: File) => file.type.startsWith('video/');
+  const isVideoUrl = (url?: string | null) => {
+    if (!url) return false;
+    return /\.(mp4|webm|ogg|mov|m4v)(\?.*)?$/i.test(url);
+  };
 
   const handleFile = async (file: File) => {
     // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const allowedTypes = type === 'workshop'
+      ? ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime']
+      : ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!allowedTypes.includes(file.type)) {
-      setMessage({ type: 'error', text: 'Invalid file type. Please upload JPG, PNG, GIF, or WebP.' });
+      setMessage({
+        type: 'error',
+        text: type === 'workshop'
+          ? 'Invalid file type. Please upload JPG, PNG, GIF, WebP, MP4, WebM, OGG, or MOV.'
+          : 'Invalid file type. Please upload JPG, PNG, GIF, or WebP.',
+      });
       return;
     }
 
-    // Validate file size (5MB max)
-    if (file.size > 5 * 1024 * 1024) {
-      setMessage({ type: 'error', text: 'File too large. Maximum size is 5MB.' });
+    // Validate file size
+    const maxSize = type === 'workshop' ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setMessage({
+        type: 'error',
+        text: type === 'workshop'
+          ? 'File too large. Maximum size is 10MB.'
+          : 'File too large. Maximum size is 5MB.',
+      });
       return;
     }
 
@@ -40,6 +60,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
     const reader = new FileReader();
     reader.onload = (e) => {
       setPreviewUrl(e.target?.result as string);
+      setPreviewKind(isVideoFile(file) ? 'video' : 'image');
     };
     reader.readAsDataURL(file);
 
@@ -58,9 +79,11 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
         setMessage({ type: 'success', text: 'Image uploaded successfully!' });
         onUploadSuccess(response.url);
         setPreviewUrl(null);
+        setPreviewKind('image');
       } else {
         setMessage({ type: 'error', text: 'Upload failed. Please try again.' });
         setPreviewUrl(null);
+        setPreviewKind('image');
       }
     } catch (error: unknown) {
       console.error('Upload error:', error);
@@ -70,6 +93,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
         text: axiosError?.response?.data?.detail || 'Upload failed. Please try again.',
       });
       setPreviewUrl(null);
+      setPreviewKind('image');
     } finally {
       setUploading(false);
     }
@@ -106,6 +130,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
   };
 
   const displayImage = previewUrl || currentImage;
+  const displayKind = previewUrl ? previewKind : isVideoUrl(currentImage) ? 'video' : 'image';
 
   return (
     <div className={`relative ${className}`}>
@@ -113,7 +138,9 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp"
+        accept={type === 'workshop'
+          ? 'image/jpeg,image/png,image/gif,image/webp,video/mp4,video/webm,video/ogg,video/quicktime'
+          : 'image/jpeg,image/png,image/gif,image/webp'}
         onChange={handleChange}
         className="hidden"
       />
@@ -138,15 +165,27 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
           }`}
         >
           {displayImage ? (
-            <img
-              src={displayImage}
-              alt="Profile"
-              className="w-full h-full object-cover"
-            />
+            displayKind === 'video' ? (
+              <video
+                src={displayImage}
+                className="w-full h-full object-cover"
+                muted
+                playsInline
+                controls={false}
+              />
+            ) : (
+              <img
+                src={displayImage}
+                alt="Profile"
+                className="w-full h-full object-cover"
+              />
+            )
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
               <Camera className="w-8 h-8 mb-2" />
-              <span className="text-xs text-center px-2">Drop image or click</span>
+              <span className="text-xs text-center px-2">
+                {type === 'workshop' ? 'Drop image or video' : 'Drop image or click'}
+              </span>
             </div>
           )}
 
@@ -210,7 +249,9 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
 
       {/* Help text */}
       <p className="text-xs text-gray-500 mt-2 text-center">
-        JPG, PNG, GIF, WebP (max 5MB)
+        {type === 'workshop'
+          ? 'JPG, PNG, GIF, WebP, MP4, WebM, OGG, MOV (max 10MB)'
+          : 'JPG, PNG, GIF, WebP (max 5MB)'}
       </p>
     </div>
   );
