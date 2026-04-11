@@ -8,6 +8,7 @@ from app.models.tutor import TutorProfile
 from app.models.user import User, UserRole
 from app.models.workshop import Workshop
 from app.routes.auth import get_current_user
+from app.schemas.booking import UtcDatetime
 
 router = APIRouter()
 
@@ -48,14 +49,14 @@ class WorkshopResponse(BaseModel):
     thumbnail_url: Optional[str] = None
     amount: float
     currency: str
-    scheduled_at: datetime
+    scheduled_at: UtcDatetime
     duration_minutes: int
     max_participants: int
     is_active: bool
     tutor_name: Optional[str] = None
     tutor_email: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 def _to_response(workshop: Workshop) -> WorkshopResponse:

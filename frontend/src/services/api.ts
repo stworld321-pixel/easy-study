@@ -248,6 +248,7 @@ export interface MonthCalendar {
   month: number;
   session_duration: number;
   buffer_time: number;
+  tutor_timezone?: string;
   days: CalendarDay[];
 }
 

@@ -74,4 +74,8 @@ class MonthCalendarResponse(BaseModel):
     month: int
     session_duration: int
     buffer_time: int
+    # IANA timezone name that defines the semantic meaning of every HH:MM
+    # slot in `days[*].time_slots`. The frontend uses this to convert the
+    # user's pick into a UTC ISO string before sending it back.
+    tutor_timezone: Optional[str] = None
     days: List[CalendarDayStatus]

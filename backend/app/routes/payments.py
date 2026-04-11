@@ -22,6 +22,7 @@ from app.routes.auth import get_current_user
 from app.services.razorpay_service import razorpay_service
 from app.services.payment_service import payment_service
 from app.services.email_service import email_service
+from app.schemas.booking import UtcDatetime
 from app.core.config import settings
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
@@ -81,19 +82,19 @@ class PaymentDetailsResponse(BaseModel):
     is_first_booking: bool
     razorpay_order_id: Optional[str] = None
     razorpay_payment_id: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class TutorPaymentListItem(BaseModel):
     id: str
     booking_id: str
     student_name: str
-    scheduled_at: Optional[datetime] = None
+    scheduled_at: Optional[UtcDatetime] = None
     session_amount: float
     tutor_earnings: float
     currency: str
     status: str
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 @router.post("/create-order", response_model=CreateOrderResponse)
