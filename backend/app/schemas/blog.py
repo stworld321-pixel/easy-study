@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List
 from datetime import datetime
 from app.models.blog import BlogStatus
+from app.schemas.booking import UtcDatetime
 
 
 class BlogCreate(BaseModel):
@@ -55,9 +56,9 @@ class BlogResponse(BaseModel):
     is_featured: bool
     views: int
     likes: int
-    created_at: datetime
-    updated_at: datetime
-    published_at: Optional[datetime] = None
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
+    published_at: Optional[UtcDatetime] = None
 
 
 class BlogListResponse(BaseModel):
@@ -75,8 +76,8 @@ class BlogListResponse(BaseModel):
     is_featured: bool
     views: int
     likes: int
-    created_at: datetime
-    published_at: Optional[datetime] = None
+    created_at: UtcDatetime
+    published_at: Optional[UtcDatetime] = None
 
 
 class BlogListPaginated(BaseModel):

@@ -77,15 +77,45 @@ const MeetingRoom: React.FC = () => {
           setMeetingAccess(access);
         }
       } catch (err: unknown) {
+        type StructuredDetail = {
+          code?: string;
+          message?: string;
+          join_available_at?: string;
+        };
         const apiError = err as {
-          response?: { data?: { detail?: string; message?: string } };
+          response?: {
+            data?: {
+              detail?: string | StructuredDetail;
+              message?: string;
+            };
+          };
           message?: string;
         };
-        const detail =
-          apiError?.response?.data?.detail ||
-          apiError?.response?.data?.message ||
-          apiError?.message ||
-          'Unable to load this session.';
+        const rawDetail = apiError?.response?.data?.detail;
+        let detail: string;
+        if (
+          rawDetail &&
+          typeof rawDetail === 'object' &&
+          rawDetail.code === 'session_not_open' &&
+          rawDetail.join_available_at
+        ) {
+          // `join_available_at` is a UTC ISO string — `new Date(...)` parses
+          // it as UTC and `toLocaleString` renders it in the viewer's local
+          // timezone, which is what the user actually wants to see.
+          const localJoinAt = new Date(rawDetail.join_available_at).toLocaleString(
+            undefined,
+            { dateStyle: 'medium', timeStyle: 'short' },
+          );
+          detail = `Session is not open yet. You can join after ${localJoinAt}.`;
+        } else if (typeof rawDetail === 'string') {
+          detail = rawDetail;
+        } else {
+          detail =
+            rawDetail?.message ||
+            apiError?.response?.data?.message ||
+            apiError?.message ||
+            'Unable to load this session.';
+        }
         setError(detail);
       } finally {
         setLoading(false);

@@ -16,6 +16,7 @@ from app.services.email_service import email_service
 from app.services.notification_service import notification_service
 from app.services.certificate_service import build_certificate_pdf
 from app.models.notification import NotificationType
+from app.schemas.booking import UtcDatetime
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class MaterialResponse(BaseModel):
     file_url: Optional[str] = None
     file_name: Optional[str] = None
     file_type: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class AssignmentCreate(BaseModel):
@@ -86,16 +87,16 @@ class AssignmentResponse(BaseModel):
     title: str
     description: str
     subject: str
-    due_date: datetime
+    due_date: UtcDatetime
     max_marks: int
     student_id: Optional[str] = None
     student_name: Optional[str] = None
     status: str
     submission_url: Optional[str] = None
-    submission_date: Optional[datetime] = None
+    submission_date: Optional[UtcDatetime] = None
     obtained_marks: Optional[int] = None
     feedback: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class AssignmentSubmitRequest(BaseModel):
@@ -126,9 +127,9 @@ class RatingResponse(BaseModel):
     subject: str
     rating: int
     comment: str
-    session_date: Optional[datetime] = None
+    session_date: Optional[UtcDatetime] = None
     certificate_url: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class CertificateResponse(BaseModel):
@@ -137,10 +138,10 @@ class CertificateResponse(BaseModel):
     subject: str
     session_name: Optional[str] = None
     tutor_name: str
-    session_date: datetime
+    session_date: UtcDatetime
     certificate_number: str
     file_url: str
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ============== MATERIALS ROUTES ==============
@@ -433,7 +434,7 @@ async def create_assignment(
         title=data.title,
         description=data.description,
         subject=data.subject,
-        due_date=data.due_date,
+        due_date=_to_utc_naive(data.due_date),
         max_marks=data.max_marks,
         shared_with_all=data.shared_with_all,
         student_ids=recipient_ids,
@@ -837,6 +838,9 @@ async def create_rating(
         if existing:
             raise HTTPException(status_code=400, detail="You have already rated this session")
 
+    if resolved_session_date is not None:
+        resolved_session_date = _to_utc_naive(resolved_session_date)
+
     rating = TutorRating(
         tutor_id=resolved_tutor_id,
         tutor_name=resolved_tutor_name,
@@ -875,12 +879,18 @@ async def create_rating(
                 certificate_number = f"ZC-{session_date.strftime('%Y%m%d')}-{str(current_user.id)[-6:].upper()}"
                 tutor_signature_url = None
                 tutor_signature_bytes = None
+                cert_tz_name: Optional[str] = None
                 if booking and booking.tutor_id:
                     from app.models.tutor import TutorProfile
                     tutor_profile = await TutorProfile.get(booking.tutor_id)
                     if tutor_profile:
                         tutor_signature_url = tutor_profile.signature_image_url
                         tutor_signature_bytes = _load_signature_bytes(tutor_signature_url)
+                    tutor_avail = await TutorAvailability.find_one(
+                        TutorAvailability.tutor_id == booking.tutor_id
+                    )
+                    if tutor_avail and (tutor_avail.timezone or "").strip():
+                        cert_tz_name = tutor_avail.timezone
                 pdf_bytes = build_certificate_pdf(
                     student_name=current_user.full_name,
                     tutor_name=resolved_tutor_name,
@@ -890,6 +900,7 @@ async def create_rating(
                     session_name=(booking.session_name if booking else None),
                     tutor_signature_url=tutor_signature_url,
                     tutor_signature_bytes=tutor_signature_bytes,
+                    timezone_name=cert_tz_name,
                 )
                 file_name = f"completion-certificate-{data.booking_id}.pdf"
                 upload_result = minio_service.upload_bytes(
@@ -1070,12 +1081,18 @@ async def regenerate_certificate(certificate_id: str, current_user: User = Depen
     try:
         tutor_signature_url = None
         tutor_signature_bytes = None
+        regen_tz_name: Optional[str] = None
         if certificate.tutor_id:
             from app.models.tutor import TutorProfile
             tutor_profile = await TutorProfile.get(certificate.tutor_id)
             if tutor_profile:
                 tutor_signature_url = tutor_profile.signature_image_url
                 tutor_signature_bytes = _load_signature_bytes(tutor_signature_url)
+            tutor_avail = await TutorAvailability.find_one(
+                TutorAvailability.tutor_id == certificate.tutor_id
+            )
+            if tutor_avail and (tutor_avail.timezone or "").strip():
+                regen_tz_name = tutor_avail.timezone
         pdf_bytes = build_certificate_pdf(
             student_name=certificate.student_name,
             tutor_name=certificate.tutor_name,
@@ -1085,6 +1102,7 @@ async def regenerate_certificate(certificate_id: str, current_user: User = Depen
             session_name=certificate.session_name,
             tutor_signature_url=tutor_signature_url,
             tutor_signature_bytes=tutor_signature_bytes,
+            timezone_name=regen_tz_name,
         )
 
         file_name = f"completion-certificate-{certificate.booking_id}-v2.pdf"
@@ -1149,6 +1167,13 @@ async def preview_certificate_for_tutor(
 
     certificate_number = f"PREVIEW-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
+    preview_tz_name: Optional[str] = None
+    preview_avail = await TutorAvailability.find_one(
+        TutorAvailability.tutor_id == str(tutor_profile.id)
+    )
+    if preview_avail and (preview_avail.timezone or "").strip():
+        preview_tz_name = preview_avail.timezone
+
     pdf_bytes = build_certificate_pdf(
         student_name=safe_student_name,
         tutor_name=(tutor_profile.full_name or current_user.full_name or "TUTOR"),
@@ -1158,6 +1183,7 @@ async def preview_certificate_for_tutor(
         session_name=safe_session_name,
         tutor_signature_url=tutor_profile.signature_image_url,
         tutor_signature_bytes=_load_signature_bytes(tutor_profile.signature_image_url),
+        timezone_name=preview_tz_name,
     )
 
     return Response(

@@ -1,10 +1,25 @@
 from io import BytesIO
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Optional
+from zoneinfo import ZoneInfo
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.lib.utils import ImageReader
+
+
+def _localize(dt: datetime, tz_name: Optional[str]) -> datetime:
+    """Return `dt` rendered in the given IANA timezone. Naive datetimes
+    are assumed to be UTC (matching the rest of the codebase's storage
+    convention). Falls back to UTC on unknown zones."""
+    zone_name = (tz_name or "UTC").strip() or "UTC"
+    try:
+        zone = ZoneInfo(zone_name)
+    except Exception:
+        zone = timezone.utc
+    aware = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
+    return aware.astimezone(zone)
 
 
 def build_certificate_pdf(
@@ -16,6 +31,7 @@ def build_certificate_pdf(
     session_name: str | None = None,
     tutor_signature_url: str | None = None,
     tutor_signature_bytes: bytes | None = None,
+    timezone_name: Optional[str] = None,
 ) -> bytes:
     """
     Build a certificate PDF and return bytes.
@@ -119,8 +135,9 @@ def build_certificate_pdf(
     c.setLineWidth(2)
     c.line(content_left, page_height - 322, content_right, page_height - 322)
 
-    # Main description
-    date_text = session_date.strftime("%B %d, %Y")
+    # Main description — render the date in the tutor's timezone so the
+    # certificate shows the day the session actually happened locally.
+    date_text = _localize(session_date, timezone_name).strftime("%B %d, %Y")
     body_text = (
         f"has actively participated in the one hour online session on "
         f"\"{title_text}\" conducted by {tutor_name} on {date_text}."

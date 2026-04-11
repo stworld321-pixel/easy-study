@@ -15,6 +15,7 @@ from app.models.user import User
 from app.routes.auth import get_current_user
 from app.services.email_service import email_service
 from app.core.config import settings
+from app.schemas.booking import UtcDatetime
 import asyncio
 import logging
 
@@ -77,8 +78,8 @@ class WithdrawalResponse(BaseModel):
     status: str
     admin_notes: Optional[str]
     transaction_id: Optional[str]
-    created_at: datetime
-    processed_at: Optional[datetime]
+    created_at: UtcDatetime
+    processed_at: Optional[UtcDatetime]
 
 
 class WithdrawalUpdate(BaseModel):

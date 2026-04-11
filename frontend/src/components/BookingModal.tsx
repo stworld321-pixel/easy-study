@@ -471,12 +471,23 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
     };
 
     const slotDuration = Math.max(15, calendarSessionDuration || 60);
-    const parsedDate = new Date(`${dateStr}T00:00:00`);
-    const now = new Date();
+    const nowMs = Date.now();
     const minNoticeHours = 0;
-    const cutoff = new Date(now.getTime() + (minNoticeHours * 60 * 60 * 1000));
+    const cutoffMs = nowMs + minNoticeHours * 60 * 60 * 1000;
     const slots: DisplaySlot[] = [];
     const dedupe = new Set<string>();
+
+    // Slot HH:MM values live in the tutor's timezone. Turn each one
+    // into a real UTC instant before comparing against `Date.now()` so
+    // the "past" highlight works correctly regardless of which zone the
+    // viewer is sitting in.
+    const slotInstantMs = (time: string): number => {
+      try {
+        return new Date(zonedDateTimeToUtcIso(dateStr, time, tutorTimezone)).getTime();
+      } catch {
+        return Number.NaN;
+      }
+    };
 
     day.time_slots.forEach((slot) => {
       if (!slot.start_time || !slot.end_time) return;
@@ -488,9 +499,8 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
         dedupe.add(timeKey);
 
         const startMinutes = parseTimeToMinutes(slot.start_time);
-        const slotDateTime = new Date(parsedDate);
-        slotDateTime.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
-        const isPast = slotDateTime < cutoff;
+        const slotMs = slotInstantMs(slot.start_time);
+        const isPast = Number.isFinite(slotMs) && slotMs < cutoffMs;
         const isAvailable = Boolean(slot.is_available) && !isPast;
         slots.push({
           time: slot.start_time,
@@ -511,9 +521,8 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
         if (dedupe.has(time)) continue;
         dedupe.add(time);
 
-        const slotDateTime = new Date(parsedDate);
-        slotDateTime.setHours(Math.floor(t / 60), t % 60, 0, 0);
-        const isPast = slotDateTime < cutoff;
+        const slotMs = slotInstantMs(time);
+        const isPast = Number.isFinite(slotMs) && slotMs < cutoffMs;
 
         slots.push({
           time,
@@ -739,7 +748,14 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
 
                 <div className="mb-4">
                   <h3 className="font-semibold text-gray-900">{formatDate(selectedDate)}</h3>
-                  <p className="text-sm text-gray-500">Select a time slot</p>
+                  <p className="text-sm text-gray-500">
+                    Select a time slot
+                    {tutorTimezone && (
+                      <span className="ml-1 text-gray-400">
+                        — times shown in tutor's timezone ({tutorTimezone})
+                      </span>
+                    )}
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">

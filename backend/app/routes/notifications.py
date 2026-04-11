@@ -14,6 +14,7 @@ from app.routes.auth import get_current_user
 from app.services.websocket_manager import manager, NotificationPayload
 from app.services.notification_service import notification_service
 from app.core.config import settings
+from app.schemas.booking import UtcDatetime
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
@@ -30,7 +31,7 @@ class NotificationResponse(BaseModel):
     actor_name: Optional[str] = None
     actor_avatar: Optional[str] = None
     is_read: bool
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 class NotificationListResponse(BaseModel):

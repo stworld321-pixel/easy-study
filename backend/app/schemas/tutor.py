@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+from app.schemas.booking import UtcDatetime
 
 class SubjectCreate(BaseModel):
     name: str
@@ -81,4 +82,4 @@ class TutorProfileResponse(BaseModel):
     is_verified: bool
     is_featured: bool
     is_available: bool
-    created_at: datetime
+    created_at: UtcDatetime
