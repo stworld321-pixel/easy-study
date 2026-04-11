@@ -557,6 +557,11 @@ class MeetingAccessResponse(BaseModel):
     domain: str
     launch_url: str
     is_moderator: bool
+    # Email of the tutor for this booking. Every client uses this to
+    # recognize the tutor when they (re)join and call `grantModerator`
+    # on them — the workaround for meet.jit.si deployments that don't
+    # re-read the JWT moderator claim on reconnect.
+    tutor_email: Optional[str] = None
     jwt: Optional[str] = None
     join_available_at: Optional[UtcDatetime] = None
     join_expires_at: Optional[UtcDatetime] = None
@@ -1109,6 +1114,7 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
         domain=domain,
         launch_url=launch_url,
         is_moderator=is_tutor_owner,
+        tutor_email=booking.tutor_email,
         jwt=token,
         join_available_at=join_available_at,
         join_expires_at=_meeting_link_expires_at(booking),

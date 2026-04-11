@@ -345,6 +345,7 @@ export interface MeetingAccessResponse {
   domain: string;
   launch_url: string;
   is_moderator: boolean;
+  tutor_email?: string;
   jwt?: string;
   join_available_at?: string;
   join_expires_at?: string;
