@@ -1011,7 +1011,7 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
     if join_available_at and datetime.utcnow() < join_available_at:
         raise HTTPException(
             status_code=403,
-            detail=f"Session is not open yet. You can join after {join_available_at.strftime('%d %b %Y, %I:%M %p UTC')}."
+            detail="Session is not open yet. You can join 15 minutes before the scheduled start time."
         )
 
     room_key = await _ensure_meeting_room_key(booking)
