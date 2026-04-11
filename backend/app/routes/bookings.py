@@ -252,6 +252,15 @@ def _build_jitsi_access_token(
     return jose_jwt.encode(payload, secret, algorithm="HS256")
 
 
+def _meeting_jwt_required() -> bool:
+    # The app should never fall back to anonymous room access for real sessions.
+    return bool(
+        _jaas_enabled()
+        or (settings.JITSI_APP_SECRET or "").strip()
+        or bool(settings.JITSI_REQUIRE_JWT)
+    )
+
+
 def _resolve_meeting_domain_and_room(room_key: str) -> tuple[str, str, str]:
     """Return (domain, room_name_for_client, meeting_url). When JaaS is enabled,
     the room name is namespaced under the AppID and the domain switches to 8x8.vc."""
@@ -990,6 +999,11 @@ async def get_jitsi_test_access(current_user: User = Depends(get_current_user)):
             "affiliation": "owner",
         }
         token = jose_jwt.encode(payload, settings.JITSI_APP_SECRET, algorithm="HS256")
+    elif _meeting_jwt_required():
+        raise HTTPException(
+            status_code=503,
+            detail="Jitsi JWT authentication is required but not configured. Set JITSI_APP_SECRET or JaaS credentials."
+        )
 
     launch_url = f"{meeting_url}?jwt={token}" if token else meeting_url
     return JitsiTestAccessResponse(
@@ -1048,6 +1062,11 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
         user=current_user,
         is_moderator=is_tutor_owner
     )
+    if not token:
+        raise HTTPException(
+            status_code=503,
+            detail="Jitsi JWT authentication is required but not configured. Set JITSI_APP_SECRET or JaaS credentials."
+        )
     launch_url = f"{meeting_url}?jwt={token}" if token else meeting_url
 
     return MeetingAccessResponse(
