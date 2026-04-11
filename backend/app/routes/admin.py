@@ -29,7 +29,7 @@ class UserResponse(BaseModel):
     phone: Optional[str] = None
     is_active: bool
     is_verified: bool
-    created_at: datetime
+    created_at: UtcDatetime
 
 class TutorResponse(BaseModel):
     id: str
@@ -43,7 +43,7 @@ class TutorResponse(BaseModel):
     is_active: bool = True  # Maps to is_available in model
     total_sessions: int = 0  # Maps to total_lessons in model
     rating: float = 0
-    created_at: datetime
+    created_at: UtcDatetime
 
 class BookingResponse(BaseModel):
     id: str
@@ -661,8 +661,8 @@ class PaymentResponse(BaseModel):
     tutor_earnings: float
     status: str
     is_first_booking: bool
-    created_at: datetime
-    completed_at: Optional[datetime] = None
+    created_at: UtcDatetime
+    completed_at: Optional[UtcDatetime] = None
 
 
 class TutorEarningsResponse(BaseModel):

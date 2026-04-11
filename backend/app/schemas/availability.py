@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 from typing import Optional, List, Dict
 from datetime import datetime
 from app.models.availability import DayOfWeek
+from app.schemas.booking import UtcDatetime
 
 class TimeSlotSchema(BaseModel):
     start_time: str  # Format: "HH:MM"
@@ -43,8 +44,8 @@ class AvailabilityResponse(BaseModel):
     group_weekly_schedule: Dict[str, List[TimeSlotSchema]]
     # Backward compatibility for existing frontend consumers.
     weekly_schedule: Dict[str, List[TimeSlotSchema]]
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 class BlockedDateCreate(BaseModel):
     date: str  # Format: "YYYY-MM-DD"
@@ -53,9 +54,9 @@ class BlockedDateCreate(BaseModel):
 class BlockedDateResponse(BaseModel):
     id: str
     tutor_id: str
-    date: datetime
+    date: UtcDatetime
     reason: Optional[str]
-    created_at: datetime
+    created_at: UtcDatetime
 
 class BlockedDatesListResponse(BaseModel):
     blocked_dates: List[BlockedDateResponse]

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -12,6 +12,15 @@ from app.routes.auth import get_current_user
 from app.schemas.booking import UtcDatetime
 
 router = APIRouter()
+
+
+def _normalize_to_utc_naive(dt: datetime) -> datetime:
+    """Store-side convention: every datetime in the DB is naive UTC.
+    Aware inputs (the normal case — frontend sends `.toISOString()`) are
+    converted; naive inputs are assumed to already be UTC."""
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 class WorkshopCreate(BaseModel):
@@ -154,7 +163,7 @@ async def create_workshop(payload: WorkshopCreate, current_user: User = Depends(
         thumbnail_url=payload.thumbnail_url,
         amount=payload.amount,
         currency=(payload.currency or tutor.currency or "INR").upper(),
-        scheduled_at=payload.scheduled_at,
+        scheduled_at=_normalize_to_utc_naive(payload.scheduled_at),
         duration_minutes=payload.duration_minutes,
         max_participants=payload.max_participants,
         is_active=payload.is_active,
@@ -182,6 +191,8 @@ async def update_workshop(workshop_id: str, payload: WorkshopUpdate, current_use
         update_data["modules"] = [m.strip() for m in update_data["modules"] if m and m.strip()]
     if "currency" in update_data and update_data["currency"] is not None:
         update_data["currency"] = update_data["currency"].upper()
+    if "scheduled_at" in update_data and update_data["scheduled_at"] is not None:
+        update_data["scheduled_at"] = _normalize_to_utc_naive(update_data["scheduled_at"])
 
     for field, value in update_data.items():
         setattr(workshop, field, value)

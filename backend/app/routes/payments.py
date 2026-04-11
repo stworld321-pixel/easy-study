@@ -218,6 +218,16 @@ async def verify_razorpay_payment(
     booking.payment_status = "paid"
     await booking.save()
 
+    # Resolve tutor timezone once so every email and notification below
+    # renders the session time in the zone the session was booked in.
+    from app.models.availability import TutorAvailability
+    tutor_availability = await TutorAvailability.find_one(
+        TutorAvailability.tutor_id == booking.tutor_id
+    )
+    tutor_tz_name = (
+        (tutor_availability.timezone or None) if tutor_availability else None
+    )
+
     workshop_confirmed = False
     is_workshop_booking = bool(getattr(booking, "is_workshop", False)) or "workshop booking:" in (booking.notes or "").lower()
     if is_workshop_booking:
@@ -241,6 +251,7 @@ async def verify_razorpay_payment(
                     subject_name=booking.subject,
                     scheduled_at=booking.scheduled_at,
                     meeting_link=booking.meeting_link,
+                    timezone_name=tutor_tz_name,
                 ),
                 "workshop_booking_confirmed_email",
             )
@@ -261,6 +272,7 @@ async def verify_razorpay_payment(
             platform_fee=payment.student_platform_fee,
             total_paid=total_paid,
             razorpay_payment_id=payment.razorpay_payment_id,
+            timezone_name=tutor_tz_name,
         ),
         "invoice_after_payment_verify",
     )

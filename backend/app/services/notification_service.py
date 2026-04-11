@@ -9,7 +9,16 @@ import logging
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.services.websocket_manager import manager, NotificationPayload
-from app.services.email_service import email_service
+from app.services.email_service import email_service, format_local_datetime
+
+
+def _format_session_time(scheduled_at: datetime, timezone_name: Optional[str]) -> str:
+    """Format a session datetime as 'Month DD, YYYY at HH:MM AM ZONE'
+    (e.g. 'January 15, 2026 at 02:00 PM IST'). Naive datetimes are
+    assumed UTC; an explicit timezone label is always appended so the
+    reader never has to guess which zone the clock is in."""
+    date_str, time_str, zone_label = format_local_datetime(scheduled_at, timezone_name)
+    return f"{date_str} at {time_str} {zone_label}"
 
 logger = logging.getLogger(__name__)
 
@@ -119,10 +128,11 @@ class NotificationService:
         student_id: str,
         subject: str,
         booking_id: str,
-        scheduled_at: datetime
+        scheduled_at: datetime,
+        timezone_name: Optional[str] = None,
     ) -> Notification:
         """Notify tutor of a new booking request."""
-        formatted_time = scheduled_at.strftime("%B %d, %Y at %I:%M %p")
+        formatted_time = _format_session_time(scheduled_at, timezone_name)
         notification = await NotificationService.create_notification(
             user_id=tutor_user_id,
             notification_type=NotificationType.BOOKING_NEW,
@@ -146,7 +156,8 @@ class NotificationService:
                     subject_name=subject,
                     scheduled_at=scheduled_at,
                     is_new_booking=True,
-                    is_for_tutor=True
+                    is_for_tutor=True,
+                    timezone_name=timezone_name,
                     ),
                     "notify_new_booking"
                 )
@@ -163,10 +174,11 @@ class NotificationService:
         subject: str,
         booking_id: str,
         scheduled_at: datetime,
-        meeting_link: Optional[str] = None
+        meeting_link: Optional[str] = None,
+        timezone_name: Optional[str] = None,
     ) -> Notification:
         """Notify student that their booking was confirmed."""
-        formatted_time = scheduled_at.strftime("%B %d, %Y at %I:%M %p")
+        formatted_time = _format_session_time(scheduled_at, timezone_name)
         notification = await NotificationService.create_notification(
             user_id=student_user_id,
             notification_type=NotificationType.BOOKING_CONFIRMED,
@@ -189,7 +201,8 @@ class NotificationService:
                     tutor_name=tutor_name,
                     subject_name=subject,
                     scheduled_at=scheduled_at,
-                    meeting_link=meeting_link
+                    meeting_link=meeting_link,
+                    timezone_name=timezone_name,
                     ),
                     "notify_booking_confirmed"
                 )
@@ -206,10 +219,11 @@ class NotificationService:
         subject: str,
         booking_id: str,
         scheduled_at: datetime,
-        is_student: bool = True
+        is_student: bool = True,
+        timezone_name: Optional[str] = None,
     ) -> Notification:
         """Notify user that a booking was cancelled."""
-        formatted_time = scheduled_at.strftime("%B %d, %Y at %I:%M %p")
+        formatted_time = _format_session_time(scheduled_at, timezone_name)
         link = "/student/dashboard?tab=sessions" if is_student else "/tutor/dashboard?tab=calendar"
         notification = await NotificationService.create_notification(
             user_id=user_id,
@@ -232,7 +246,8 @@ class NotificationService:
                     recipient_name=user.full_name,
                     cancelled_by=cancelled_by_name,
                     subject_name=subject,
-                    scheduled_at=scheduled_at
+                    scheduled_at=scheduled_at,
+                    timezone_name=timezone_name,
                     ),
                     "notify_booking_cancelled"
                 )
@@ -248,10 +263,12 @@ class NotificationService:
         booking_id: str,
         scheduled_at: datetime,
         other_party_name: str,
-        is_student: bool = True
+        is_student: bool = True,
+        timezone_name: Optional[str] = None,
     ) -> Notification:
         """Send a reminder notification for an upcoming session."""
-        formatted_time = scheduled_at.strftime("%I:%M %p")
+        _, time_str, zone_label = format_local_datetime(scheduled_at, timezone_name)
+        formatted_time = f"{time_str} {zone_label}"
         role = "tutor" if is_student else "student"
         link = "/student/dashboard?tab=sessions" if is_student else "/tutor/dashboard?tab=calendar"
         return await NotificationService.create_notification(

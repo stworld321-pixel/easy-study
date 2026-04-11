@@ -8,7 +8,7 @@ from app.models.booking_slot import BookingSlot, SlotStatus
 from app.models.availability import TutorAvailability
 from app.models.tutor import TutorProfile
 from app.models.user import User
-from app.schemas.booking import BookingCreate, BookingUpdate, BookingResponse, ReviewCreate, ReviewResponse
+from app.schemas.booking import BookingCreate, BookingUpdate, BookingResponse, ReviewCreate, ReviewResponse, UtcDatetime
 from app.routes.auth import get_current_user
 from app.services.notification_service import notification_service
 from app.services.payment_service import payment_service
@@ -76,6 +76,18 @@ def _safe_zoneinfo(timezone_name: str | None) -> tzinfo:
             return ZoneInfo("UTC")
         except Exception:
             return timezone.utc
+
+
+async def _get_tutor_timezone_name(tutor_id: str) -> Optional[str]:
+    """Return the IANA timezone string configured on the tutor's
+    availability doc, or None if unset. Used to format dates in emails
+    and notifications so the reader sees a clock that matches the zone
+    the session was scheduled in."""
+    availability = await TutorAvailability.find_one(TutorAvailability.tutor_id == tutor_id)
+    if not availability:
+        return None
+    name = (availability.timezone or "").strip()
+    return name or None
 
 
 async def _get_booking_access(booking: Booking, current_user: User) -> tuple[bool, bool]:
@@ -319,6 +331,7 @@ async def _ensure_completion_certificate_for_booking(booking: Booking) -> Option
 
     session_date = booking.scheduled_at
     certificate_number = f"ZC-{session_date.strftime('%Y%m%d')}-{str(student.id)[-6:].upper()}-{str(booking.id)[-4:].upper()}"
+    cert_tz_name = await _get_tutor_timezone_name(booking.tutor_id)
     pdf_bytes = build_certificate_pdf(
         student_name=student.full_name or "Student",
         tutor_name=tutor_name,
@@ -328,6 +341,7 @@ async def _ensure_completion_certificate_for_booking(booking: Booking) -> Option
         session_name=booking.session_name,
         tutor_signature_url=tutor_signature_url,
         tutor_signature_bytes=tutor_signature_bytes,
+        timezone_name=cert_tz_name,
     )
     file_name = f"completion-certificate-{booking.id}.pdf"
     upload_result = minio_service.upload_bytes(
@@ -536,10 +550,10 @@ class MeetingAccessResponse(BaseModel):
     launch_url: str
     is_moderator: bool
     jwt: Optional[str] = None
-    join_available_at: Optional[datetime] = None
-    join_expires_at: Optional[datetime] = None
-    feedback_allowed_at: Optional[datetime] = None
-    certificate_ready_at: Optional[datetime] = None
+    join_available_at: Optional[UtcDatetime] = None
+    join_expires_at: Optional[UtcDatetime] = None
+    feedback_allowed_at: Optional[UtcDatetime] = None
+    certificate_ready_at: Optional[UtcDatetime] = None
 
 
 class JitsiTestAccessResponse(BaseModel):
@@ -880,7 +894,8 @@ async def create_booking(
             student_id=str(current_user.id),
             subject=booking.subject,
             booking_id=str(booking.id),
-            scheduled_at=booking.scheduled_at
+            scheduled_at=booking.scheduled_at,
+            timezone_name=(availability.timezone if availability else None),
         )
     except Exception:
         logger.exception("Failed to send booking-created notification for booking %s", booking.id)
@@ -1009,9 +1024,24 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
 
     join_available_at = _meeting_join_available_at(booking)
     if join_available_at and datetime.utcnow() < join_available_at:
+        # Return a structured detail so the frontend can render the join
+        # time in the viewer's local timezone instead of hard-coded UTC.
+        join_iso = (
+            join_available_at.replace(tzinfo=timezone.utc)
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
         raise HTTPException(
             status_code=403,
+<<<<<<< HEAD
             detail="Session is not open yet. You can join 15 minutes before the scheduled start time."
+=======
+            detail={
+                "code": "session_not_open",
+                "message": "Session is not open yet.",
+                "join_available_at": join_iso,
+            },
+>>>>>>> b329523dc87446e4ee285cd6da45c6b1c3c0bfa7
         )
 
     room_key = await _ensure_meeting_room_key(booking)
@@ -1181,6 +1211,8 @@ async def confirm_booking(
         _dispatch_background(_schedule_workshop_certificate_issue(str(booking.id)), "workshop_certificate_schedule_on_confirm")
 
     # Complete the payment when booking is confirmed
+    tutor_tz_name = await _get_tutor_timezone_name(booking.tutor_id)
+
     try:
         payment = await payment_service.get_payment_by_booking(booking_id)
         if payment:
@@ -1205,6 +1237,7 @@ async def confirm_booking(
                         platform_fee=payment.student_platform_fee,
                         total_paid=total_paid,
                         razorpay_payment_id=payment.razorpay_payment_id,
+                        timezone_name=tutor_tz_name,
                     ),
                     "invoice_on_confirm_fallback",
                 )
@@ -1223,7 +1256,8 @@ async def confirm_booking(
             subject=booking.subject,
             booking_id=str(booking.id),
             scheduled_at=booking.scheduled_at,
-            meeting_link=booking.meeting_link
+            meeting_link=booking.meeting_link,
+            timezone_name=tutor_tz_name,
         )
     except Exception:
         logger.exception("Failed to send booking confirmation notification for booking %s", booking.id)
@@ -1239,6 +1273,7 @@ async def confirm_booking(
                     subject_name=booking.subject,
                     scheduled_at=booking.scheduled_at,
                     meeting_link=booking.meeting_link,
+                    timezone_name=tutor_tz_name,
                 ),
                 "tutor_session_confirmation_email",
             )
@@ -1325,6 +1360,8 @@ async def cancel_booking(
         duration_minutes=booking.duration_minutes,
     )
 
+    cancel_tz_name = await _get_tutor_timezone_name(booking.tutor_id)
+
     # Send notification to the other party
     try:
         if is_cancelled_by_student:
@@ -1338,7 +1375,8 @@ async def cancel_booking(
                     subject=booking.subject,
                     booking_id=str(booking.id),
                     scheduled_at=booking.scheduled_at,
-                    is_student=False
+                    is_student=False,
+                    timezone_name=cancel_tz_name,
                 )
         else:
             # Notify student that tutor cancelled
@@ -1349,7 +1387,8 @@ async def cancel_booking(
                 subject=booking.subject,
                 booking_id=str(booking.id),
                 scheduled_at=booking.scheduled_at,
-                is_student=True
+                is_student=True,
+                timezone_name=cancel_tz_name,
             )
     except Exception:
         logger.exception("Failed to send cancellation notification for booking %s", booking.id)
@@ -1364,6 +1403,7 @@ async def cancel_booking(
                     cancelled_by=current_user.full_name or "User",
                     subject_name=booking.subject,
                     scheduled_at=booking.scheduled_at,
+                    timezone_name=cancel_tz_name,
                 ),
                 "booking_cancelled_ack_email",
             )
@@ -1392,6 +1432,7 @@ async def cancel_booking(
                     currency=refund_currency,
                     amount=refund_amount,
                     eta_text="2 to 4 business days",
+                    timezone_name=cancel_tz_name,
                 ),
                 "refund_initiated_email",
             )
