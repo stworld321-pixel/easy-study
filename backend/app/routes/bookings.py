@@ -1051,6 +1051,43 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
             },
         )
 
+    # Moderator safety: the first person to join a Jitsi room becomes
+    # moderator on deployments that don't enforce our JWT moderator
+    # claim (meet.jit.si, some self-hosted setups). To guarantee the
+    # tutor is always the first joiner, we latch `tutor_joined_at` on
+    # the shared BookingSlot the first time the tutor hits this
+    # endpoint, and block students until that latch is set. Slot-level
+    # storage means group and workshop sessions share a single latch
+    # across every participant booking.
+    slot = await BookingSlot.find_one({
+        "tutor_id": booking.tutor_id,
+        "scheduled_at": booking.scheduled_at,
+        "duration_minutes": booking.duration_minutes,
+    })
+    if slot is not None:
+        if is_tutor_owner:
+            if slot.tutor_joined_at is None:
+                slot.tutor_joined_at = datetime.utcnow()
+                slot.updated_at = datetime.utcnow()
+                try:
+                    await slot.save()
+                except Exception:
+                    # Non-fatal — we'd rather let the tutor join than block them on a save failure.
+                    logger.exception(
+                        "Failed to latch tutor_joined_at for slot of booking %s", booking.id,
+                    )
+        elif is_student and slot.tutor_joined_at is None:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "waiting_for_tutor",
+                    "message": "Waiting for the tutor to start the session.",
+                },
+            )
+    # If there's no slot document (legacy booking made before BookingSlot
+    # existed), fall through with no latch — preserves old behavior for
+    # those rows so they aren't silently broken.
+
     room_key = await _ensure_meeting_room_key(booking)
     domain, room_name, meeting_url = _resolve_meeting_domain_and_room(room_key)
     token = _build_jitsi_access_token(

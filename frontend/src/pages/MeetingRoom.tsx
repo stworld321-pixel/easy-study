@@ -29,6 +29,11 @@ const MeetingRoom: React.FC = () => {
   const [meetingAccess, setMeetingAccess] = useState<MeetingAccessResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // When the tutor hasn't opened the room yet, students sit on this
+  // waiting screen and we re-poll /meeting-access until the backend
+  // latches `tutor_joined_at`. Blocking students from joining first is
+  // what prevents them from silently becoming the Jitsi moderator.
+  const [waitingForTutor, setWaitingForTutor] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const apiRef = useRef<JitsiApiInstance | null>(null);
 
@@ -53,31 +58,42 @@ const MeetingRoom: React.FC = () => {
   }, [booking?.scheduled_at, booking?.duration_minutes]);
 
   useEffect(() => {
-    const fetchBooking = async () => {
-      if (!bookingId) {
-        setError('Invalid booking link.');
-        setLoading(false);
-        return;
-      }
+    if (!bookingId) {
+      setError('Invalid booking link.');
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+
+    type StructuredDetail = {
+      code?: string;
+      message?: string;
+      join_available_at?: string;
+    };
+
+    const attemptFetch = async (isPoll: boolean) => {
       try {
         const [data, access] = await Promise.all([
           bookingsAPI.getById(bookingId),
           bookingsAPI.getMeetingAccess(bookingId),
         ]);
+        if (cancelled) return;
         if (data.status !== 'confirmed') {
           setError('This session is not confirmed yet.');
+          setWaitingForTutor(false);
         } else if (isMeetingExpired(data)) {
           setError('This session link has expired.');
+          setWaitingForTutor(false);
         } else {
           setBooking(data);
           setMeetingAccess(access);
+          setError(null);
+          setWaitingForTutor(false);
         }
       } catch (err: unknown) {
-        type StructuredDetail = {
-          code?: string;
-          message?: string;
-          join_available_at?: string;
-        };
+        if (cancelled) return;
         const apiError = err as {
           response?: {
             data?: {
@@ -88,6 +104,20 @@ const MeetingRoom: React.FC = () => {
           message?: string;
         };
         const rawDetail = apiError?.response?.data?.detail;
+
+        // Student hit /meeting-access before the tutor has checked in
+        // — stay on the waiting-room screen and retry.
+        if (
+          rawDetail &&
+          typeof rawDetail === 'object' &&
+          rawDetail.code === 'waiting_for_tutor'
+        ) {
+          setWaitingForTutor(true);
+          setError(null);
+          pollTimer = setTimeout(() => attemptFetch(true), 8000);
+          return;
+        }
+
         let detail: string;
         if (
           rawDetail &&
@@ -113,11 +143,20 @@ const MeetingRoom: React.FC = () => {
             'Unable to load this session.';
         }
         setError(detail);
+        setWaitingForTutor(false);
       } finally {
-        setLoading(false);
+        if (!cancelled && !isPoll) {
+          setLoading(false);
+        }
       }
     };
-    fetchBooking();
+
+    attemptFetch(false);
+
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
+    };
   }, [bookingId]);
 
   useEffect(() => {
@@ -238,6 +277,23 @@ const MeetingRoom: React.FC = () => {
         <div className="flex items-center gap-2 text-gray-600">
           <Loader2 className="w-5 h-5 animate-spin" />
           Loading session...
+        </div>
+      </div>
+    );
+  }
+
+  if (waitingForTutor) {
+    return (
+      <div className="min-h-screen pt-24 flex items-center justify-center px-4">
+        <div className="max-w-lg w-full bg-white border border-amber-200 rounded-2xl p-6 shadow-sm text-center">
+          <div className="mx-auto w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center mb-4">
+            <Loader2 className="w-6 h-6 text-amber-600 animate-spin" />
+          </div>
+          <h1 className="text-lg font-semibold text-gray-900">Waiting for your tutor</h1>
+          <p className="text-gray-600 mt-2">
+            The session will open here automatically as soon as your tutor starts
+            the meeting. You don't need to refresh this page.
+          </p>
         </div>
       </div>
     );
