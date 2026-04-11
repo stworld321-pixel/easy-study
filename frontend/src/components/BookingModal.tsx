@@ -10,6 +10,7 @@ import type { CalendarDay } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { zonedDateTimeToUtcIso, getBrowserTimezone } from '../utils/datetime';
 
 const PENDING_BOOKING_KEY = 'zc:pendingBooking';
 
@@ -101,6 +102,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
 
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarData, setCalendarData] = useState<CalendarDay[]>([]);
+  const [tutorTimezone, setTutorTimezone] = useState<string>(() => getBrowserTimezone());
   const [calendarSessionDuration, setCalendarSessionDuration] = useState<number>(60);
   const [studentPlatformFeeRate, setStudentPlatformFeeRate] = useState<number>(0);
   const [loading, setLoading] = useState(true);
@@ -198,6 +200,12 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
       const data = await availabilityAPI.getPublicCalendar(tutor.id, year, month, sessionType);
       setCalendarData(data.days);
       setCalendarSessionDuration(data.session_duration || 60);
+      // Calendar slot HH:MM values are defined in the tutor's timezone.
+      // Fall back to the browser's zone if the backend didn't send one
+      // (e.g., older deployments).
+      if (data.tutor_timezone) {
+        setTutorTimezone(data.tutor_timezone);
+      }
     } catch (error) {
       console.error('Failed to fetch calendar:', error);
       // Generate mock data
@@ -322,10 +330,18 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
         }
       };
 
-      // Step 1: Create booking with selected currency
+      // Step 1: Create booking with selected currency.
+      // The picked HH:MM is a wall-clock time in the tutor's timezone —
+      // convert it to a real UTC instant before sending so the backend
+      // (and every future reader) stores an unambiguous moment.
+      const scheduledAtUtc = zonedDateTimeToUtcIso(
+        selectedDate,
+        selectedTime,
+        tutorTimezone,
+      );
       const bookingResponse = await bookingsAPI.create({
         tutor_id: tutor.id,
-        scheduled_at: `${selectedDate}T${selectedTime}:00`,
+        scheduled_at: scheduledAtUtc,
         session_type: sessionType,
         duration_minutes: calendarSessionDuration || 60,
         subject: tutor.subjects[0] || 'General',

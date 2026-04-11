@@ -737,12 +737,24 @@ async def create_booking(
     now_in_tutor_tz = datetime.now(tutor_tz)
     min_notice_cutoff = now_in_tutor_tz
 
-    scheduled_at = booking_data.scheduled_at
-    if scheduled_at.tzinfo is None:
-        scheduled_at_in_tutor_tz = scheduled_at.replace(tzinfo=tutor_tz)
+    # Normalize incoming scheduled_at to naive UTC (our storage convention).
+    # - Timezone-aware input (the new frontend contract — ISO string with 'Z' or offset):
+    #     convert to UTC and drop tzinfo.
+    # - Timezone-naive input (legacy clients): fall back to treating it as tutor-local
+    #     wall time, then convert to UTC so both paths store the same instant.
+    raw_scheduled_at = booking_data.scheduled_at
+    if raw_scheduled_at.tzinfo is None:
+        aware_scheduled_at = raw_scheduled_at.replace(tzinfo=tutor_tz)
     else:
-        scheduled_at_in_tutor_tz = scheduled_at.astimezone(tutor_tz)
+        aware_scheduled_at = raw_scheduled_at.astimezone(timezone.utc)
 
+    normalized_scheduled_at = aware_scheduled_at.astimezone(timezone.utc).replace(tzinfo=None)
+    # Keep the canonical UTC value on the request object so every downstream
+    # use (slot reservation, duplicate check, booking insert, notifications)
+    # sees the same instant.
+    booking_data.scheduled_at = normalized_scheduled_at
+
+    scheduled_at_in_tutor_tz = aware_scheduled_at.astimezone(tutor_tz)
     if scheduled_at_in_tutor_tz.date() < min_notice_cutoff.date():
         raise HTTPException(
             status_code=400,

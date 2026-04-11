@@ -14,6 +14,7 @@ from app.routes.auth import get_current_user
 from app.services.notification_service import notification_service
 from app.models.notification import NotificationType
 from app.services.payment_service import payment_service
+from app.schemas.booking import UtcDatetime
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
@@ -53,12 +54,12 @@ class BookingResponse(BaseModel):
     tutor_name: str
     tutor_email: str
     subject: str
-    scheduled_at: datetime
+    scheduled_at: UtcDatetime
     duration_minutes: int
     status: str
     price: float
     meeting_link: Optional[str] = None
-    created_at: datetime
+    created_at: UtcDatetime
 
 class DashboardStats(BaseModel):
     total_users: int
@@ -466,16 +467,16 @@ class RefundItem(BaseModel):
     tutor_id: str
     tutor_name: Optional[str] = None
     subject: str
-    scheduled_at: datetime
+    scheduled_at: UtcDatetime
     duration_minutes: int
     price: float
     currency: str
     payment_status: str
     cancelled_by_role: Optional[str] = None
     cancelled_by_name: Optional[str] = None
-    cancelled_at: Optional[datetime] = None
+    cancelled_at: Optional[UtcDatetime] = None
     refund_status: Optional[str] = None
-    refunded_at: Optional[datetime] = None
+    refunded_at: Optional[UtcDatetime] = None
     refund_reference: Optional[str] = None
     refund_notes: Optional[str] = None
     razorpay_payment_id: Optional[str] = None

@@ -423,6 +423,7 @@ async def get_month_calendar(
         month=month,
         session_duration=availability.session_duration,
         buffer_time=availability.buffer_time,
+        tutor_timezone=availability.timezone,
         days=days
     )
 
@@ -589,5 +590,6 @@ async def get_tutor_public_calendar(
         month=month,
         session_duration=availability.session_duration,
         buffer_time=availability.buffer_time,
+        tutor_timezone=availability.timezone,
         days=days
     )
