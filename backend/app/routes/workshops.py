@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.models.tutor import TutorProfile
 from app.models.user import User, UserRole
 from app.models.workshop import Workshop
+from app.core.config import settings
 from app.routes.auth import get_current_user
 from app.schemas.booking import UtcDatetime
 
@@ -43,6 +44,7 @@ class WorkshopResponse(BaseModel):
     id: str
     tutor_id: str
     tutor_user_id: str
+    public_url: Optional[str] = None
     title: str
     description: Optional[str] = None
     modules: List[str] = []
@@ -60,10 +62,13 @@ class WorkshopResponse(BaseModel):
 
 
 def _to_response(workshop: Workshop) -> WorkshopResponse:
+    base_url = (settings.FRONTEND_URL or "").rstrip("/")
+    public_url = f"{base_url}/workshops/{str(workshop.id)}" if base_url else None
     return WorkshopResponse(
         id=str(workshop.id),
         tutor_id=workshop.tutor_id,
         tutor_user_id=workshop.tutor_user_id,
+        public_url=public_url,
         title=workshop.title,
         description=workshop.description,
         modules=workshop.modules or [],

@@ -441,11 +441,11 @@ const StudentDashboard: React.FC = () => {
                   </div>
 
                   {/* Meet Link for confirmed bookings */}
-                  {booking.status === 'confirmed' && booking.meeting_link && (
+                  {booking.meeting_link && (booking.status === 'confirmed' || booking.is_workshop) && (
                     <div className="mt-4 p-4 bg-green-50 rounded-xl border border-green-200">
                       <div className="flex items-center gap-2 text-sm font-medium text-green-700 mb-2">
                         <Video className="w-4 h-4" />
-                        Your session is confirmed! Join in Zeal Catalyst:
+                        {booking.is_workshop ? 'Workshop access link:' : 'Your session is confirmed! Join in Zeal Catalyst:'}
                       </div>
                       <div className="flex items-center gap-2">
                         <input

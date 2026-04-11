@@ -1860,13 +1860,13 @@ const TutorDashboard: React.FC = () => {
                         {booking.currency === 'INR' ? 'Rs ' : '$'}{booking.price.toFixed(2)} | {booking.duration_minutes} min | {booking.session_type}
                       </div>
 
-                      {booking.status === 'confirmed' && (
+                      {(booking.status === 'confirmed' || booking.is_workshop) && (
                         <div className="mt-3 p-3 bg-white rounded-lg border border-gray-200">
                           {booking.meeting_link ? (
                             <div className="space-y-2">
                               <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
                                 <Video className="w-4 h-4 text-green-600" />
-                                Session Link
+                                {booking.is_workshop ? 'Workshop Link' : 'Session Link'}
                               </div>
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                 <input
@@ -2184,6 +2184,16 @@ const TutorDashboard: React.FC = () => {
                         >
                           Edit
                         </button>
+                        {workshop.public_url && (
+                          <a
+                            href={workshop.public_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 text-sm bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200"
+                          >
+                            Open Link
+                          </a>
+                        )}
                         <button
                           onClick={() => handleDeleteWorkshop(workshop.id)}
                           className="px-3 py-1.5 text-sm bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
