@@ -1137,7 +1137,7 @@ async def restart_meeting(
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
 
-    _, _, is_tutor_owner = await _get_booking_access(booking, current_user)
+    _, is_tutor_owner = await _get_booking_access(booking, current_user)
     if not is_tutor_owner:
         raise HTTPException(status_code=403, detail="Only the tutor can reset the meeting room")
 
