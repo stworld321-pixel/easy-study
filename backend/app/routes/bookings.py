@@ -1033,15 +1033,11 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
         )
         raise HTTPException(
             status_code=403,
-<<<<<<< HEAD
-            detail="Session is not open yet. You can join 15 minutes before the scheduled start time."
-=======
             detail={
                 "code": "session_not_open",
                 "message": "Session is not open yet.",
                 "join_available_at": join_iso,
             },
->>>>>>> b329523dc87446e4ee285cd6da45c6b1c3c0bfa7
         )
 
     room_key = await _ensure_meeting_room_key(booking)
