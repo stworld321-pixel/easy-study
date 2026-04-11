@@ -396,6 +396,11 @@ export const bookingsAPI = {
     return response.data;
   },
 
+  restartMeeting: async (id: string): Promise<MeetingAccessResponse> => {
+    const response = await api.post(`/bookings/${id}/meeting-restart`);
+    return response.data;
+  },
+
   getJitsiTestAccess: async (): Promise<JitsiTestAccessResponse> => {
     const response = await api.get('/bookings/jitsi/test-access');
     return response.data;

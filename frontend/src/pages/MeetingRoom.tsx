@@ -1,21 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, ExternalLink, Loader2 } from 'lucide-react';
+import { AlertCircle, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import { bookingsAPI, type BookingResponse, type MeetingAccessResponse } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { isMeetingExpired } from '../utils/jitsiMeeting';
 
-type JitsiParticipantInfo = {
-  participantId?: string;
-  displayName?: string;
-  email?: string;
-  role?: string;
-};
-
 type JitsiApiInstance = {
   addListener: (event: string, callback: (...args: unknown[]) => void) => void;
   executeCommand: (command: string, ...args: unknown[]) => void;
-  getParticipantsInfo?: () => JitsiParticipantInfo[];
   dispose: () => void;
 };
 
@@ -38,6 +30,7 @@ const MeetingRoom: React.FC = () => {
   // latches `tutor_joined_at`. Blocking students from joining first is
   // what prevents them from silently becoming the Jitsi moderator.
   const [waitingForTutor, setWaitingForTutor] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const apiRef = useRef<JitsiApiInstance | null>(null);
 
@@ -163,6 +156,69 @@ const MeetingRoom: React.FC = () => {
     };
   }, [bookingId]);
 
+  // Tutor-initiated room rotation. Rotates the meeting_room_key on the
+  // backend so a fresh Jitsi room is created; the tutor is guaranteed
+  // to be the first joiner (and therefore moderator) of the new room.
+  // Students still inside the old room will follow via the room-sync
+  // poll below.
+  const handleRestartMeeting = useCallback(async () => {
+    if (!bookingId || restarting) return;
+    setRestarting(true);
+    try {
+      const fresh = await bookingsAPI.restartMeeting(bookingId);
+      // Tear down the current Jitsi embed; the setup effect will re-run
+      // with the new roomName and mount a fresh room.
+      try {
+        apiRef.current?.dispose();
+      } catch {
+        // Ignore disposal errors — re-mount will still work.
+      }
+      apiRef.current = null;
+      setMeetingAccess(fresh);
+    } catch (err) {
+      console.error('Failed to restart meeting:', err);
+    } finally {
+      setRestarting(false);
+    }
+  }, [bookingId, restarting]);
+
+  // Room-sync poll: while the meeting is mounted, periodically re-fetch
+  // /meeting-access. If the backend has rotated the room_key (because
+  // the tutor clicked Reset after reconnecting), all non-tutor clients
+  // notice the new room_name and remount Jitsi into the fresh room.
+  // This keeps students from being stranded in the old Jitsi channel.
+  useEffect(() => {
+    if (!bookingId || !meetingAccess?.room_name) return;
+    const currentRoom = meetingAccess.room_name;
+
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      try {
+        const fresh = await bookingsAPI.getMeetingAccess(bookingId);
+        if (cancelled) return;
+        if (fresh.room_name && fresh.room_name !== currentRoom) {
+          try {
+            apiRef.current?.dispose();
+          } catch {
+            // Ignore — remount will still happen.
+          }
+          apiRef.current = null;
+          setMeetingAccess(fresh);
+        }
+      } catch {
+        // Transient errors are expected (network blips, brief 403 during
+        // rotation). Just try again on the next tick.
+      }
+    };
+
+    const interval = setInterval(tick, 12000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [bookingId, meetingAccess?.room_name]);
+
   useEffect(() => {
     if (!booking || !roomName || !containerRef.current) return;
     let lobbyEnabled = false;
@@ -208,74 +264,6 @@ const MeetingRoom: React.FC = () => {
         }
         navigate('/tutor/dashboard?tab=bookings');
       });
-
-      // Moderator hand-back: on meet.jit.si the JWT moderator claim is
-      // only advisory, so if the tutor drops off the call and reconnects
-      // Jitsi leaves them as a regular participant (whoever took over
-      // — usually a student — keeps the admin rights). We paper over
-      // that by having every client watch for the tutor joining (by
-      // email match) and calling `grantModerator` on them. The grant
-      // only succeeds when issued by the current moderator, so whichever
-      // client happens to hold that role at the moment the tutor
-      // rejoins will hand it back automatically. Tutors on JaaS get
-      // moderator enforced server-side, so this is a no-op there.
-      const tutorEmail = (meetingAccess?.tutor_email || '').trim().toLowerCase();
-
-      const isTutorParticipant = (info: JitsiParticipantInfo | undefined): boolean => {
-        if (!info || !tutorEmail) return false;
-        return (info.email || '').trim().toLowerCase() === tutorEmail;
-      };
-
-      const findParticipantById = (id: string): JitsiParticipantInfo | undefined => {
-        try {
-          const list = apiRef.current?.getParticipantsInfo?.() || [];
-          return list.find((p) => p.participantId === id);
-        } catch {
-          return undefined;
-        }
-      };
-
-      const promoteIfTutor = (participantId: string, attempt = 0) => {
-        const info = findParticipantById(participantId);
-        // `participantJoined` can fire before the participant's email
-        // metadata has propagated. Retry a few times before giving up.
-        if (!info || !info.email) {
-          if (attempt < 5) {
-            setTimeout(() => promoteIfTutor(participantId, attempt + 1), 600);
-          }
-          return;
-        }
-        if (!isTutorParticipant(info)) return;
-        if ((info.role || '').toLowerCase() === 'moderator') return;
-        try {
-          apiRef.current?.executeCommand('grantModerator', participantId);
-        } catch {
-          // Silently ignore — only the current moderator can grant;
-          // the other non-moderator clients will no-op here.
-        }
-      };
-
-      if (tutorEmail) {
-        apiRef.current.addListener('participantJoined', (...args: unknown[]) => {
-          const payload = args[0] as { id?: string } | undefined;
-          if (payload?.id) {
-            // Small delay so the server has registered the new participant
-            // before we try to grant — grantModerator is a no-op on
-            // unknown ids.
-            setTimeout(() => promoteIfTutor(payload.id as string), 400);
-          }
-        });
-
-        apiRef.current.addListener('participantRoleChanged', (...args: unknown[]) => {
-          const payload = args[0] as { id?: string; role?: string } | undefined;
-          if (!payload?.id) return;
-          if ((payload.role || '').toLowerCase() === 'moderator') return;
-          // Tutor was downgraded (or is still a regular participant).
-          // Try to promote them again; if we're the current moderator
-          // this succeeds, otherwise it's silently ignored.
-          promoteIfTutor(payload.id);
-        });
-      }
 
       // Safety: if tutor is moderator and lobby is enabled, disable it to prevent student waiting issues.
       if (meetingAccess?.is_moderator) {
@@ -341,7 +329,7 @@ const MeetingRoom: React.FC = () => {
       apiRef.current?.dispose();
       apiRef.current = null;
     };
-  }, [booking, roomName, jitsiDomain, user?.email, user?.full_name, user?.role, navigate, meetingAccess?.jwt, meetingAccess?.tutor_email, meetingAccess?.is_moderator, sessionEndTime]);
+  }, [booking, roomName, jitsiDomain, user?.email, user?.full_name, user?.role, navigate, meetingAccess?.jwt, meetingAccess?.is_moderator, sessionEndTime]);
 
   if (loading) {
     return (
@@ -398,10 +386,30 @@ const MeetingRoom: React.FC = () => {
     );
   }
 
+  const isTutorView = meetingAccess?.is_moderator === true;
+
   return (
     <div className="min-h-screen pt-20 bg-gray-950">
-      <div className="px-4 sm:px-6 py-3 bg-gray-900 text-gray-100 text-sm">
-        {booking?.subject} session with {booking?.tutor_name || 'Tutor'}
+      <div className="px-4 sm:px-6 py-3 bg-gray-900 text-gray-100 text-sm flex items-center justify-between gap-3">
+        <span className="truncate">
+          {booking?.subject} session with {booking?.tutor_name || 'Tutor'}
+        </span>
+        {isTutorView && (
+          <button
+            type="button"
+            onClick={handleRestartMeeting}
+            disabled={restarting}
+            title="If you lost moderator rights after a disconnect, click to rotate the room and reclaim control. Every participant will be moved into a fresh room."
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-amber-500/90 hover:bg-amber-500 text-white text-xs font-medium transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {restarting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5" />
+            )}
+            {restarting ? 'Resetting…' : 'Reclaim moderator'}
+          </button>
+        )}
       </div>
       <div ref={containerRef} className="w-full" style={{ height: 'calc(100vh - 84px)' }} />
     </div>

@@ -557,10 +557,9 @@ class MeetingAccessResponse(BaseModel):
     domain: str
     launch_url: str
     is_moderator: bool
-    # Email of the tutor for this booking. Every client uses this to
-    # recognize the tutor when they (re)join and call `grantModerator`
-    # on them — the workaround for meet.jit.si deployments that don't
-    # re-read the JWT moderator claim on reconnect.
+    # Email of the tutor for this booking. Exposed so clients can
+    # recognize the tutor in the participant list for moderator-related
+    # UX (e.g. the "waiting for tutor to reconnect" banner).
     tutor_email: Optional[str] = None
     jwt: Optional[str] = None
     join_available_at: Optional[UtcDatetime] = None
@@ -1120,6 +1119,115 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
         join_expires_at=_meeting_link_expires_at(booking),
         feedback_allowed_at=_to_utc_naive(booking.scheduled_at) + timedelta(minutes=booking.duration_minutes),
         certificate_ready_at=_workshop_certificate_ready_at(booking) if _is_workshop_booking(booking) else None,
+    )
+
+
+@router.post("/{booking_id}/meeting-restart", response_model=MeetingAccessResponse)
+async def restart_meeting(
+    booking_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    """Rotate the Jitsi room for this booking so the tutor is the first
+    joiner of a brand-new room. Used to reclaim moderator after a
+    network drop on deployments (meet.jit.si) that don't re-read the
+    JWT moderator claim on reconnect — by moving everyone into a fresh
+    room, whoever initiates the rotation (always the tutor here) is
+    guaranteed to be the first participant in the new one."""
+    booking = await Booking.get(booking_id)
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+
+    _, _, is_tutor_owner = await _get_booking_access(booking, current_user)
+    if not is_tutor_owner:
+        raise HTTPException(status_code=403, detail="Only the tutor can reset the meeting room")
+
+    if booking.status != BookingStatus.CONFIRMED:
+        raise HTTPException(status_code=400, detail="Session is not confirmed.")
+
+    # Generate a new random key with the same prefix (zc-p / zc-g / zc-w)
+    # so all existing key conventions keep working. For group/workshop
+    # sessions every sibling booking that shares this slot must be
+    # rotated in the same request or half the room ends up stranded in
+    # the old Jitsi channel.
+    old_key = booking.meeting_room_key or ""
+    if old_key.startswith("zc-w-"):
+        prefix = "zc-w"
+    elif old_key.startswith("zc-g-") or booking.session_type == SessionType.GROUP:
+        prefix = "zc-g"
+    else:
+        prefix = "zc-p"
+    new_key = f"{prefix}-{uuid4().hex}"
+
+    now_utc = datetime.utcnow()
+    siblings: list[Booking] = []
+    if booking.session_type == SessionType.GROUP or prefix == "zc-w":
+        # Every booking for the same slot shares one Jitsi room — rotate
+        # them as a group so students don't end up isolated.
+        siblings = await Booking.find({
+            "tutor_id": booking.tutor_id,
+            "session_type": booking.session_type.value if hasattr(booking.session_type, "value") else str(booking.session_type),
+            "scheduled_at": booking.scheduled_at,
+            "duration_minutes": booking.duration_minutes,
+            "status": BookingStatus.CONFIRMED.value,
+        }).to_list()
+    else:
+        siblings = [booking]
+
+    for b in siblings:
+        b.meeting_room_key = new_key
+        b.updated_at = now_utc
+        try:
+            await b.save()
+        except Exception:
+            logger.exception("Failed to rotate meeting_room_key for booking %s", b.id)
+
+    # Re-latch the slot so `tutor_joined_at` reflects this fresh start —
+    # students polling /meeting-access will now see the new room name
+    # and a valid latch, and rejoin the rotated room cleanly.
+    slot = await BookingSlot.find_one({
+        "tutor_id": booking.tutor_id,
+        "scheduled_at": booking.scheduled_at,
+        "duration_minutes": booking.duration_minutes,
+    })
+    if slot is not None:
+        slot.tutor_joined_at = now_utc
+        slot.updated_at = now_utc
+        try:
+            await slot.save()
+        except Exception:
+            logger.exception("Failed to re-latch tutor_joined_at on restart for booking %s", booking.id)
+
+    # Reload the booking so we return the rotated key.
+    refreshed = await Booking.get(booking_id)
+    if not refreshed:
+        raise HTTPException(status_code=500, detail="Meeting restart failed")
+
+    domain, room_name, meeting_url = _resolve_meeting_domain_and_room(new_key)
+    token = _build_jitsi_access_token(
+        room_name=room_name,
+        booking=refreshed,
+        user=current_user,
+        is_moderator=True,
+    )
+    if not token:
+        raise HTTPException(
+            status_code=503,
+            detail="Jitsi JWT authentication is required but not configured.",
+        )
+    launch_url = f"{meeting_url}?jwt={token}"
+
+    return MeetingAccessResponse(
+        booking_id=str(refreshed.id),
+        room_name=room_name,
+        domain=domain,
+        launch_url=launch_url,
+        is_moderator=True,
+        tutor_email=refreshed.tutor_email,
+        jwt=token,
+        join_available_at=_meeting_join_available_at(refreshed),
+        join_expires_at=_meeting_link_expires_at(refreshed),
+        feedback_allowed_at=_to_utc_naive(refreshed.scheduled_at) + timedelta(minutes=refreshed.duration_minutes),
+        certificate_ready_at=_workshop_certificate_ready_at(refreshed) if _is_workshop_booking(refreshed) else None,
     )
 
 
