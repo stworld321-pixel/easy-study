@@ -14,7 +14,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from app.models.user import User
-from app.models.booking import Booking
+from app.models.booking import Booking, BookingStatus
 from app.models.payment import Payment, PaymentStatus
 from app.models.platform_settings import PlatformSettings
 from app.models.tutor import TutorProfile
