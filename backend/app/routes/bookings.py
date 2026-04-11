@@ -555,7 +555,6 @@ class MeetingAccessResponse(BaseModel):
     booking_id: str
     room_name: str
     domain: str
-    meeting_url: str
     launch_url: str
     is_moderator: bool
     jwt: Optional[str] = None
@@ -568,7 +567,6 @@ class MeetingAccessResponse(BaseModel):
 class JitsiTestAccessResponse(BaseModel):
     room_name: str
     domain: str
-    meeting_url: str
     launch_url: str
     is_moderator: bool
     jwt: Optional[str] = None
@@ -1009,7 +1007,6 @@ async def get_jitsi_test_access(current_user: User = Depends(get_current_user)):
     return JitsiTestAccessResponse(
         room_name=room_name,
         domain=domain,
-        meeting_url=meeting_url,
         launch_url=launch_url,
         is_moderator=True,
         jwt=token,
@@ -1073,7 +1070,6 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
         booking_id=str(booking.id),
         room_name=room_name,
         domain=domain,
-        meeting_url=meeting_url,
         launch_url=launch_url,
         is_moderator=is_tutor_owner,
         jwt=token,

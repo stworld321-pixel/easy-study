@@ -343,7 +343,6 @@ export interface MeetingAccessResponse {
   booking_id: string;
   room_name: string;
   domain: string;
-  meeting_url: string;
   launch_url: string;
   is_moderator: boolean;
   jwt?: string;
@@ -356,7 +355,6 @@ export interface MeetingAccessResponse {
 export interface JitsiTestAccessResponse {
   room_name: string;
   domain: string;
-  meeting_url: string;
   launch_url: string;
   is_moderator: boolean;
   jwt?: string;

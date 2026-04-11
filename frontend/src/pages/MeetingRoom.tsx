@@ -41,10 +41,6 @@ const MeetingRoom: React.FC = () => {
 
   const jitsiDomain = normalizeDomain(meetingAccess?.domain || (import.meta.env.VITE_JITSI_DOMAIN as string) || 'meet.jit.si');
   const roomName = meetingAccess?.room_name || '';
-  const externalMeetingUrl = useMemo(() => {
-    if (meetingAccess?.meeting_url) return meetingAccess.meeting_url;
-    return roomName ? `https://${jitsiDomain}/${roomName}` : '';
-  }, [meetingAccess?.meeting_url, roomName, jitsiDomain]);
   const appMeetingUrl = useMemo(() => {
     if (!booking?.id) return '';
     return `${window.location.origin}/meeting/${booking.id}`;
@@ -256,9 +252,9 @@ const MeetingRoom: React.FC = () => {
             <div>
               <h1 className="text-lg font-semibold text-gray-900">Unable to open session</h1>
               <p className="text-gray-600 mt-1">{error}</p>
-              {(appMeetingUrl || externalMeetingUrl) && (
+              {appMeetingUrl && (
                 <a
-                  href={appMeetingUrl || externalMeetingUrl}
+                  href={appMeetingUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 mt-4 px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors"
