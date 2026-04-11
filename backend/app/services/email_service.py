@@ -705,6 +705,7 @@ Zeal Catalyst Team
         """Send confirmation summary mail to tutor once session is confirmed."""
         formatted_date = scheduled_at.strftime("%B %d, %Y")
         formatted_time = scheduled_at.strftime("%I:%M %p")
+        meeting_text = f"Meeting: {meeting_link}\n" if meeting_link else ""
         meeting_line = (
             f"<tr><td style='color:#6b7280; font-size:14px; padding:4px 0;'>Meeting Link:</td>"
             f"<td style='color:#111827; font-size:14px; font-weight:600; text-align:right;'>"
@@ -735,7 +736,7 @@ Zeal Catalyst Team
             f"Hi {tutor_name},\n\n"
             f"You confirmed a session with {student_name}.\n"
             f"Subject: {subject_name}\nDate: {formatted_date}\nTime: {formatted_time}\n"
-            f"{f'Meeting: {meeting_link}\\n' if meeting_link else ''}\n"
+            f"{meeting_text}"
             "Open your tutor dashboard for details."
         )
         return await self.send_email(
