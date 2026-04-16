@@ -439,14 +439,21 @@ async def get_tutor_public_calendar(
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor not found")
 
-    if session_type == "group" and not tutor.offers_group:
-        return MonthCalendarResponse(year=year, month=month, session_duration=60, buffer_time=0, days=[])
-    if session_type == "private" and not tutor.offers_private:
-        return MonthCalendarResponse(year=year, month=month, session_duration=60, buffer_time=0, days=[])
-
     availability = await TutorAvailability.find_one(TutorAvailability.tutor_id == tutor_id)
     if not availability:
         return MonthCalendarResponse(year=year, month=month, session_duration=60, buffer_time=0, days=[])
+
+    if session_type == "private" and not tutor.offers_private:
+        return MonthCalendarResponse(year=year, month=month, session_duration=60, buffer_time=0, days=[])
+    if session_type == "group":
+        has_group_slots = any(
+            isinstance(slots, list) and len(slots) > 0
+            for slots in (availability.group_weekly_schedule or {}).values()
+        )
+        # Backward compatibility: allow group calendars when schedule exists,
+        # even if offers_group flag was not toggled in profile.
+        if not tutor.offers_group and not has_group_slots:
+            return MonthCalendarResponse(year=year, month=month, session_duration=60, buffer_time=0, days=[])
 
     # Get blocked dates for the month
     start_date = datetime(year, month, 1)

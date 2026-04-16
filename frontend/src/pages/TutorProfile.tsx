@@ -239,6 +239,17 @@ const TutorProfile: React.FC = () => {
     ? reviews.reduce((sum, review) => sum + review.rating, 0) / reviewCount
     : 0;
   const uniqueStudents = new Set(reviews.map((review) => review.student_id)).size;
+  const hasGroupSchedule = Boolean(
+    tutor.group_weekly_schedule &&
+    Object.values(tutor.group_weekly_schedule).some(
+      (slots) => Array.isArray(slots) && slots.length > 0,
+    ),
+  );
+  const canShowGroupSession = Boolean(
+    tutor.offers_group ||
+    (tutor.group_hourly_rate && tutor.group_hourly_rate > 0) ||
+    hasGroupSchedule,
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
@@ -562,6 +573,9 @@ const TutorProfile: React.FC = () => {
             >
               {/* Pricing */}
               <div className="mb-6 space-y-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-500">
+                  Pricing & Sessions
+                </div>
                 {tutor.offers_private && (
                   <div className="text-center p-4 bg-primary-50 rounded-xl border border-primary-100">
                     <div className="flex items-center justify-center gap-2 text-sm text-primary-600 font-medium mb-1">
@@ -570,6 +584,18 @@ const TutorProfile: React.FC = () => {
                     </div>
                     <div className="text-3xl font-bold bg-gradient-to-r from-primary-600 to-secondary-600 bg-clip-text text-transparent">
                       {formatPrice(tutor.hourly_rate)}
+                    </div>
+                    <div className="text-gray-500 text-sm">per hour</div>
+                  </div>
+                )}
+                {canShowGroupSession && (
+                  <div className="text-center p-4 bg-blue-50 rounded-xl border border-blue-100">
+                    <div className="flex items-center justify-center gap-2 text-sm text-blue-600 font-medium mb-1">
+                      <Users className="w-4 h-4" />
+                      Group Session
+                    </div>
+                    <div className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-cyan-600 bg-clip-text text-transparent">
+                      {formatPrice(tutor.group_hourly_rate ?? Math.max(0, Math.round((tutor.hourly_rate || 0) * 0.6)))}
                     </div>
                     <div className="text-gray-500 text-sm">per hour</div>
                   </div>
@@ -587,11 +613,11 @@ const TutorProfile: React.FC = () => {
                     </div>
                   </div>
                 )}
-                {tutor.offers_group && (
+                {canShowGroupSession && (
                   <div className="flex items-center gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
                     <Users className="w-5 h-5 text-blue-600" />
                     <div>
-                      <div className="font-medium text-blue-900">Group Classes</div>
+                      <div className="font-medium text-blue-900">Group Sessions</div>
                       <div className="text-xs text-blue-600">Learn with others</div>
                     </div>
                   </div>

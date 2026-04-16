@@ -31,6 +31,16 @@ const SUBJECTS_LIST = [
 
 const LANGUAGES_LIST = ['English', 'Spanish', 'French', 'German', 'Mandarin', 'Hindi', 'Arabic', 'Portuguese', 'Japanese', 'Korean'];
 
+const createEmptyWeeklySchedule = (): WeeklySchedule => ({
+  monday: [],
+  tuesday: [],
+  wednesday: [],
+  thursday: [],
+  friday: [],
+  saturday: [],
+  sunday: [],
+});
+
 // Types are now imported from api.ts
 
 const TutorDashboard: React.FC = () => {
@@ -68,15 +78,15 @@ const TutorDashboard: React.FC = () => {
 
   // Availability state
   const [, setAvailability] = useState<AvailabilitySettings | null>(null);
-  const [privateWeeklySchedule, setPrivateWeeklySchedule] = useState<WeeklySchedule>({
-    monday: [], tuesday: [], wednesday: [], thursday: [],
-    friday: [], saturday: [], sunday: []
-  });
+  const [privateWeeklySchedule, setPrivateWeeklySchedule] = useState<WeeklySchedule>(createEmptyWeeklySchedule());
+  const [groupWeeklySchedule, setGroupWeeklySchedule] = useState<WeeklySchedule>(createEmptyWeeklySchedule());
   const [sessionDuration, setSessionDuration] = useState<number>(60);
+  const [groupSessionCapacity, setGroupSessionCapacity] = useState<number>(1);
 
   // Calendar state
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [calendarDays, setCalendarDays] = useState<CalendarDay[]>([]);
+  const [calendarSessionType, setCalendarSessionType] = useState<'private' | 'group'>('private');
   const [blockedDates, setBlockedDates] = useState<BlockedDate[]>([]);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [blockReason, setBlockReason] = useState('');
@@ -84,7 +94,7 @@ const TutorDashboard: React.FC = () => {
 
   // Bookings state
   const [bookings, setBookings] = useState<BookingResponse[]>([]);
-  const [bookingView, setBookingView] = useState<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled'>('upcoming');
+  const [bookingView, setBookingView] = useState<'upcoming' | 'private' | 'group' | 'workshop' | 'finished' | 'cancelled'>('upcoming');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [editingMeetLink, setEditingMeetLink] = useState<string | null>(null);
   const [meetLinkInput, setMeetLinkInput] = useState('');
@@ -187,7 +197,7 @@ const TutorDashboard: React.FC = () => {
     if (activeTab === 'workshops') {
       fetchWorkshops();
     }
-  }, [currentMonth, activeTab]);
+  }, [currentMonth, activeTab, calendarSessionType]);
 
   const fetchWorkshops = async () => {
     try {
@@ -403,8 +413,10 @@ const TutorDashboard: React.FC = () => {
 
       if (availabilityData) {
         setAvailability(availabilityData);
-        setPrivateWeeklySchedule(availabilityData.private_weekly_schedule || availabilityData.weekly_schedule);
+        setPrivateWeeklySchedule(availabilityData.private_weekly_schedule || availabilityData.weekly_schedule || createEmptyWeeklySchedule());
+        setGroupWeeklySchedule(availabilityData.group_weekly_schedule || createEmptyWeeklySchedule());
         setSessionDuration(availabilityData.session_duration || 60);
+        setGroupSessionCapacity(Math.max(1, Number(availabilityData.group_session_capacity) || 1));
       }
 
       setBlockedDates(blockedData.blocked_dates);
@@ -430,7 +442,7 @@ const TutorDashboard: React.FC = () => {
     try {
       const year = currentMonth.getFullYear();
       const month = currentMonth.getMonth() + 1;
-      const data = await availabilityAPI.getCalendar(year, month);
+      const data = await availabilityAPI.getCalendar(year, month, calendarSessionType);
       setCalendarDays(data.days);
     } catch (error) {
       console.error('Failed to fetch calendar:', error);
@@ -442,8 +454,6 @@ const TutorDashboard: React.FC = () => {
     try {
       await tutorsAPI.updateProfile({
         ...profile,
-        offers_group: false,
-        group_hourly_rate: 0,
       });
       setMessage({ type: 'success', text: 'Profile saved successfully!' });
       setTimeout(() => setMessage(null), 3000);
@@ -457,10 +467,20 @@ const TutorDashboard: React.FC = () => {
   const handleSaveAvailability = async () => {
     setSaving(true);
     try {
+      // Save schedules sequentially to avoid race-condition overwrites:
+      // each backend save writes the full availability document.
       await availabilityAPI.updateSchedule(privateWeeklySchedule, 'private');
-      await availabilityAPI.updateSettings({
+      await availabilityAPI.updateSchedule(groupWeeklySchedule, 'group');
+      const updated = await availabilityAPI.updateSettings({
         session_duration: Math.max(15, Number(sessionDuration) || 60),
+        group_session_capacity: Math.max(1, Number(groupSessionCapacity) || 1),
       } as Partial<AvailabilitySettings>);
+
+      setAvailability(updated);
+      setPrivateWeeklySchedule(updated.private_weekly_schedule || updated.weekly_schedule || createEmptyWeeklySchedule());
+      setGroupWeeklySchedule(updated.group_weekly_schedule || createEmptyWeeklySchedule());
+      setSessionDuration(updated.session_duration || 60);
+      setGroupSessionCapacity(Math.max(1, Number(updated.group_session_capacity) || 1));
       setMessage({ type: 'success', text: 'Availability saved successfully!' });
       setTimeout(() => setMessage(null), 3000);
       fetchCalendar();
@@ -505,6 +525,78 @@ const TutorDashboard: React.FC = () => {
       ...prev,
       [day]: prev[day].map((slot, i) => i === index ? { ...slot, [field]: value } : slot)
     }));
+  };
+
+  const renderWeeklyScheduleEditor = (
+    title: string,
+    description: string,
+    schedule: WeeklySchedule,
+    setter: React.Dispatch<React.SetStateAction<WeeklySchedule>>,
+    tone: 'primary' | 'blue',
+  ) => {
+    const shellClass = tone === 'primary'
+      ? 'bg-primary-50 border-primary-200'
+      : 'bg-blue-50 border-blue-200';
+    const actionClass = tone === 'primary'
+      ? 'text-primary-600 hover:bg-primary-50'
+      : 'text-blue-600 hover:bg-blue-50';
+
+    return (
+      <div className={`mb-8 p-5 rounded-2xl border ${shellClass}`}>
+        <div className="flex items-start justify-between gap-4 mb-5">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+            <p className="text-sm text-gray-600 mt-1">{description}</p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {DAYS_OF_WEEK.map((day, index) => (
+            <div key={day} className="flex items-start gap-4 p-4 bg-white rounded-xl border border-gray-100">
+              <div className="w-20 font-semibold text-gray-900 pt-2 capitalize">
+                {DAY_LABELS[index]}
+              </div>
+              <div className="flex-1 space-y-2">
+                {schedule[day].length === 0 ? (
+                  <div className="text-gray-400 italic py-2">No availability set</div>
+                ) : (
+                  schedule[day].map((slot, slotIndex) => (
+                    <div key={slotIndex} className="flex items-center gap-3">
+                      <input
+                        type="time"
+                        value={slot.start_time}
+                        onChange={(e) => updateTimeSlot(day, slotIndex, 'start_time', e.target.value, setter)}
+                        className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                      <span className="text-gray-500">to</span>
+                      <input
+                        type="time"
+                        value={slot.end_time}
+                        onChange={(e) => updateTimeSlot(day, slotIndex, 'end_time', e.target.value, setter)}
+                        className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      />
+                      <button
+                        onClick={() => removeTimeSlot(day, slotIndex, setter)}
+                        className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+              <button
+                onClick={() => addTimeSlot(day, setter)}
+                className={`flex items-center gap-1 px-3 py-2 rounded-lg transition-colors text-sm font-medium ${actionClass}`}
+              >
+                <Plus className="w-4 h-4" />
+                Add Slot
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   const handleBlockDate = async () => {
@@ -816,20 +908,22 @@ const TutorDashboard: React.FC = () => {
   const sortedBookings = [...bookings].sort(
     (a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime()
   );
-  const bookingViews: Record<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled', BookingResponse[]> = {
+  const bookingViews: Record<'upcoming' | 'private' | 'group' | 'workshop' | 'finished' | 'cancelled', BookingResponse[]> = {
     upcoming: sortedBookings.filter(
       b => new Date(b.scheduled_at) >= now && (b.status === 'pending' || b.status === 'confirmed')
     ),
     private: sortedBookings.filter(b => b.session_type === 'private' && b.status !== 'cancelled'),
-    group: sortedBookings.filter(b => (b.session_type === 'group' || b.is_workshop) && b.status !== 'cancelled'),
+    group: sortedBookings.filter(b => b.session_type === 'group' && !b.is_workshop && b.status !== 'cancelled'),
+    workshop: sortedBookings.filter(b => Boolean(b.is_workshop) && b.status !== 'cancelled'),
     finished: sortedBookings.filter(b => b.status === 'completed' || (new Date(b.scheduled_at) < now && b.status === 'confirmed')),
     cancelled: sortedBookings.filter(b => b.status === 'cancelled'),
   };
   const currentBookings = bookingViews[bookingView];
-  const bookingViewLabels: Record<'upcoming' | 'private' | 'group' | 'finished' | 'cancelled', string> = {
+  const bookingViewLabels: Record<'upcoming' | 'private' | 'group' | 'workshop' | 'finished' | 'cancelled', string> = {
     upcoming: 'Upcoming Sessions',
     private: 'Private Sessions',
-    group: 'Group / Workshop Sessions',
+    group: 'Group Sessions',
+    workshop: 'Workshop Sessions',
     finished: 'Finished Sessions',
     cancelled: 'Cancelled Sessions',
   };
@@ -1196,7 +1290,7 @@ const TutorDashboard: React.FC = () => {
                 {/* Session Types */}
                 <div className="mb-6">
                   <label className="block text-sm font-medium text-gray-700 mb-3">Session Types You Offer</label>
-                  <div className="flex gap-4">
+                  <div className="flex flex-col gap-4">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -1207,6 +1301,19 @@ const TutorDashboard: React.FC = () => {
                       <Video className="w-4 h-4 text-gray-500" />
                       <span className="text-sm font-medium">1-on-1 Sessions</span>
                     </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={profile.offers_group}
+                        onChange={(e) => setProfile(prev => ({ ...prev, offers_group: e.target.checked }))}
+                        className="w-5 h-5 rounded text-primary-600 focus:ring-primary-500"
+                      />
+                      <Users className="w-4 h-4 text-gray-500" />
+                      <span className="text-sm font-medium">Group Sessions</span>
+                    </label>
+                    <p className="text-xs text-gray-500">
+                      Group sessions use your availability calendar and can be booked by multiple students.
+                    </p>
                     </div>
                 </div>
 
@@ -1227,6 +1334,27 @@ const TutorDashboard: React.FC = () => {
                         min="0"
                         disabled={!profile.offers_private}
                         placeholder="Enter rate per hour"
+                        className="w-full pl-8 pr-16 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">/hour</span>
+                    </div>
+                  </div>
+
+                  {/* Group Rate */}
+                  <div className={`p-4 rounded-xl border-2 transition-all ${profile.offers_group ? 'border-blue-200 bg-blue-50/50' : 'border-gray-200 bg-gray-50 opacity-60'}`}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Users className="w-5 h-5 text-blue-600" />
+                      <label className="text-sm font-semibold text-gray-900">Group Session Rate</label>
+                    </div>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">â‚¹</span>
+                      <input
+                        type="number"
+                        value={profile.group_hourly_rate || 0}
+                        onChange={(e) => setProfile(prev => ({ ...prev, group_hourly_rate: parseFloat(e.target.value) || 0 }))}
+                        min="0"
+                        disabled={!profile.offers_group}
+                        placeholder="Enter group rate per hour"
                         className="w-full pl-8 pr-16 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
                       />
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">/hour</span>
@@ -1402,7 +1530,7 @@ const TutorDashboard: React.FC = () => {
             </h2>
 
             <p className="text-gray-600 mb-8">
-              Define your private session weekly schedule.
+              Define your private and group session weekly schedules.
             </p>
 
             <div className="mb-6 p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
@@ -1424,53 +1552,37 @@ const TutorDashboard: React.FC = () => {
               </p>
             </div>
 
-            <div className="space-y-4">
-              {DAYS_OF_WEEK.map((day, index) => (
-                <div key={day} className="flex items-start gap-4 p-4 bg-gray-50 rounded-xl">
-                  <div className="w-20 font-semibold text-gray-900 pt-2 capitalize">
-                    {DAY_LABELS[index]}
-                  </div>
+            {renderWeeklyScheduleEditor(
+              'Private Session Schedule',
+              'Define the weekly schedule used for 1-on-1 bookings.',
+              privateWeeklySchedule,
+              setPrivateWeeklySchedule,
+              'primary',
+            )}
 
-                  <div className="flex-1 space-y-2">
-                    {privateWeeklySchedule[day].length === 0 ? (
-                      <div className="text-gray-400 italic py-2">No availability set</div>
-                    ) : (
-                      privateWeeklySchedule[day].map((slot, slotIndex) => (
-                        <div key={slotIndex} className="flex items-center gap-3">
-                          <input
-                            type="time"
-                            value={slot.start_time}
-                            onChange={(e) => updateTimeSlot(day, slotIndex, 'start_time', e.target.value, setPrivateWeeklySchedule)}
-                            className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                          />
-                          <span className="text-gray-500">to</span>
-                          <input
-                            type="time"
-                            value={slot.end_time}
-                            onChange={(e) => updateTimeSlot(day, slotIndex, 'end_time', e.target.value, setPrivateWeeklySchedule)}
-                            className="px-3 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
-                          />
-                          <button
-                            onClick={() => removeTimeSlot(day, slotIndex, setPrivateWeeklySchedule)}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))
-                    )}
-                  </div>
-
-                  <button
-                    onClick={() => addTimeSlot(day, setPrivateWeeklySchedule)}
-                    className="flex items-center gap-1 px-3 py-2 text-primary-600 hover:bg-primary-50 rounded-lg transition-colors text-sm font-medium"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add Slot
-                  </button>
-                </div>
-              ))}
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Group Session Capacity
+              </label>
+              <input
+                type="number"
+                min="1"
+                value={groupSessionCapacity}
+                onChange={(e) => setGroupSessionCapacity(Math.max(1, Number(e.target.value) || 1))}
+                className="w-full sm:w-64 px-4 py-2 bg-white border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                Number of students who can book the same group slot.
+              </p>
             </div>
+
+            {renderWeeklyScheduleEditor(
+              'Group Session Schedule',
+              'Define separate weekly availability for group bookings.',
+              groupWeeklySchedule,
+              setGroupWeeklySchedule,
+              'blue',
+            )}
 
             <button
               onClick={handleSaveAvailability}
@@ -1503,9 +1615,31 @@ const TutorDashboard: React.FC = () => {
                     <h2 className="text-2xl font-bold text-white">
                       {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                     </h2>
-                    <p className="text-primary-100 text-sm mt-1">Manage your availability calendar</p>
+                    <p className="text-primary-100 text-sm mt-1">
+                      Manage your {calendarSessionType === 'group' ? 'group' : 'private'} booking calendar
+                    </p>
                   </div>
                   <div className="flex gap-2">
+                    <button
+                      onClick={() => setCalendarSessionType('private')}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        calendarSessionType === 'private'
+                          ? 'bg-white text-primary-700'
+                          : 'bg-white/20 hover:bg-white/30 text-white'
+                      }`}
+                    >
+                      Private
+                    </button>
+                    <button
+                      onClick={() => setCalendarSessionType('group')}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        calendarSessionType === 'group'
+                          ? 'bg-white text-primary-700'
+                          : 'bg-white/20 hover:bg-white/30 text-white'
+                      }`}
+                    >
+                      Group
+                    </button>
                     <button
                       onClick={prevMonth}
                       className="p-2.5 bg-white/20 hover:bg-white/30 rounded-xl transition-colors text-white"
@@ -1722,7 +1856,8 @@ const TutorDashboard: React.FC = () => {
                 {[ 
                   { key: 'upcoming', label: 'Upcoming' },
                   { key: 'private', label: 'Private' },
-                  { key: 'group', label: 'Group' },
+                  { key: 'group', label: 'Group Session' },
+                  { key: 'workshop', label: 'Workshop' },
                   { key: 'finished', label: 'Finished' },
                   { key: 'cancelled', label: 'Cancelled' },
                 ].map(view => (
@@ -2139,6 +2274,16 @@ const TutorDashboard: React.FC = () => {
                             className="px-3 py-1.5 text-sm bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200"
                           >
                             Open Link
+                          </a>
+                        )}
+                        {workshop.join_url && (
+                          <a
+                            href={workshop.join_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
+                          >
+                            Join Workshop
                           </a>
                         )}
                         <button

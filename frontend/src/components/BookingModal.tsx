@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   X, ChevronLeft, ChevronRight, Clock, Calendar,
-  Video, Check, AlertCircle, CreditCard
+  Video, Check, AlertCircle, CreditCard, Users
 } from 'lucide-react';
 import { availabilityAPI, bookingsAPI, paymentsAPI } from '../services/api';
 import type { TutorProfile } from '../types';
@@ -19,7 +19,7 @@ interface PendingBookingIntent {
   selectedDate: string;
   selectedTime: string;
   durationMinutes: number;
-  sessionType: 'private';
+  sessionType: 'private' | 'group';
   currency: string;
   resumePath: string;
   savedAt: number;
@@ -108,7 +108,20 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
-  const [sessionType] = useState<'private'>('private');
+  const hasGroupSchedule = Boolean(
+    tutor.group_weekly_schedule &&
+    Object.values(tutor.group_weekly_schedule).some(
+      (slots) => Array.isArray(slots) && slots.length > 0,
+    ),
+  );
+  const canBookGroup = Boolean(
+    tutor.offers_group ||
+    (tutor.group_hourly_rate && tutor.group_hourly_rate > 0) ||
+    hasGroupSchedule,
+  );
+  const [sessionType, setSessionType] = useState<'private' | 'group'>(
+    canBookGroup && !tutor.offers_private ? 'group' : 'private',
+  );
   const [step, setStep] = useState<'date' | 'time' | 'confirm'>('date');
   const [booking, setBooking] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -117,7 +130,10 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   // Get the base session price by session type and selected duration
   const getSessionPrice = (): number => {
     const durationHours = (calendarSessionDuration || 60) / 60;
-    return Math.round(tutor.hourly_rate * durationHours * 100) / 100;
+    const baseHourlyRate = sessionType === 'group'
+      ? (tutor.group_hourly_rate || Math.round((tutor.hourly_rate * 0.6) * 100) / 100)
+      : tutor.hourly_rate;
+    return Math.round(baseHourlyRate * durationHours * 100) / 100;
   };
 
   const getPlatformFee = (baseAmount: number): number => {
@@ -164,6 +180,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
     // Clear immediately so we don't double-fire on re-renders.
     sessionStorage.removeItem(PENDING_BOOKING_KEY);
 
+    setSessionType(intent.sessionType);
     setSelectedDate(intent.selectedDate);
     setSelectedTime(intent.selectedTime);
     setCalendarSessionDuration(intent.durationMinutes);
@@ -280,6 +297,13 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
   const handleTimeSelect = (time: string) => {
     setSelectedTime(time);
     setStep('confirm');
+  };
+
+  const handleSessionTypeChange = (nextType: 'private' | 'group') => {
+    setSessionType(nextType);
+    setSelectedDate(null);
+    setSelectedTime(null);
+    setStep('date');
   };
 
   const handleBooking = async () => {
@@ -638,16 +662,41 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                   <label className="block text-sm font-semibold text-gray-700 mb-3">Session Type</label>
                   <div className="grid grid-cols-2 gap-3">
                     <button
-                      className="p-4 rounded-xl border-2 transition-all flex items-center gap-3 border-primary-500 bg-primary-50"
+                      type="button"
+                      onClick={() => handleSessionTypeChange('private')}
+                      className={`p-4 rounded-xl border-2 transition-all flex items-center gap-3 ${
+                        sessionType === 'private'
+                          ? 'border-primary-500 bg-primary-50'
+                          : 'border-gray-200 bg-white hover:border-primary-300'
+                      }`}
                     >
                       <Video className="w-5 h-5 text-primary-600" />
                       <div className="text-left">
-                        <div className="font-medium text-primary-900">
+                        <div className={`font-medium ${sessionType === 'private' ? 'text-primary-900' : 'text-gray-900'}`}>
                           1-on-1
                         </div>
                         <div className="text-xs text-gray-500">{formatPrice(getSessionPrice())}/hr</div>
                       </div>
                     </button>
+                    {canBookGroup && (
+                      <button
+                        type="button"
+                        onClick={() => handleSessionTypeChange('group')}
+                        className={`p-4 rounded-xl border-2 transition-all flex items-center gap-3 ${
+                          sessionType === 'group'
+                            ? 'border-primary-500 bg-primary-50'
+                            : 'border-gray-200 bg-white hover:border-primary-300'
+                        }`}
+                      >
+                        <Users className="w-5 h-5 text-primary-600" />
+                        <div className="text-left">
+                        <div className={`font-medium ${sessionType === 'group' ? 'text-primary-900' : 'text-gray-900'}`}>
+                            Group Session
+                          </div>
+                          <div className="text-xs text-gray-500">{formatPrice(getSessionPrice())}/hr</div>
+                        </div>
+                      </button>
+                    )}
                   </div>
                 </div>
 

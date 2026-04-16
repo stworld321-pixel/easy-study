@@ -1,14 +1,17 @@
 from datetime import datetime, timezone
 from typing import List, Optional
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.models.tutor import TutorProfile
+from app.models.booking import SessionType
 from app.models.user import User, UserRole
 from app.models.workshop import Workshop
 from app.core.config import settings
 from app.routes.auth import get_current_user
+from app.routes.bookings import _build_jitsi_access_token, _resolve_meeting_domain_and_room, _meeting_jwt_required
 from app.schemas.booking import UtcDatetime
 
 router = APIRouter()
@@ -54,6 +57,7 @@ class WorkshopResponse(BaseModel):
     tutor_id: str
     tutor_user_id: str
     public_url: Optional[str] = None
+    join_url: Optional[str] = None
     title: str
     description: Optional[str] = None
     modules: List[str] = []
@@ -70,14 +74,39 @@ class WorkshopResponse(BaseModel):
     updated_at: UtcDatetime
 
 
-def _to_response(workshop: Workshop) -> WorkshopResponse:
+def _build_tutor_join_url(workshop: Workshop, current_user: User) -> Optional[str]:
+    if _meeting_jwt_required() and not ((settings.JITSI_APP_SECRET or "").strip() or (settings.JAAS_PRIVATE_KEY or "").strip()):
+        return None
+
+    room_key = f"zc-w-{str(workshop.id)}".lower().replace(" ", "-")
+    domain, room_name, meeting_url = _resolve_meeting_domain_and_room(room_key)
+    fake_booking = SimpleNamespace(
+        id=str(workshop.id),
+        tutor_id=workshop.tutor_id,
+        student_id="",
+        session_type=SessionType.GROUP,
+    )
+    token = _build_jitsi_access_token(
+        room_name=room_name,
+        booking=fake_booking,  # duck-typed for JWT payload generation
+        user=current_user,
+        is_moderator=True,
+    )
+    if not token:
+        return None
+    return f"{meeting_url}?jwt={token}"
+
+
+def _to_response(workshop: Workshop, current_user: Optional[User] = None) -> WorkshopResponse:
     base_url = (settings.FRONTEND_URL or "").rstrip("/")
     public_url = f"{base_url}/workshops/{str(workshop.id)}" if base_url else None
+    join_url = _build_tutor_join_url(workshop, current_user) if current_user else None
     return WorkshopResponse(
         id=str(workshop.id),
         tutor_id=workshop.tutor_id,
         tutor_user_id=workshop.tutor_user_id,
         public_url=public_url,
+        join_url=join_url,
         title=workshop.title,
         description=workshop.description,
         modules=workshop.modules or [],
@@ -109,7 +138,7 @@ async def _get_tutor_or_403(current_user: User) -> TutorProfile:
 async def get_my_workshops(current_user: User = Depends(get_current_user)):
     tutor = await _get_tutor_or_403(current_user)
     workshops = await Workshop.find(Workshop.tutor_id == str(tutor.id)).sort("-scheduled_at").to_list()
-    return [_to_response(w) for w in workshops]
+    return [_to_response(w, current_user=current_user) for w in workshops]
 
 
 @router.get("/public", response_model=List[WorkshopResponse])
@@ -172,7 +201,7 @@ async def create_workshop(payload: WorkshopCreate, current_user: User = Depends(
         updated_at=datetime.utcnow(),
     )
     await workshop.insert()
-    return _to_response(workshop)
+    return _to_response(workshop, current_user=current_user)
 
 
 @router.put("/my/{workshop_id}", response_model=WorkshopResponse)
@@ -199,7 +228,7 @@ async def update_workshop(workshop_id: str, payload: WorkshopUpdate, current_use
     workshop.updated_at = datetime.utcnow()
 
     await workshop.save()
-    return _to_response(workshop)
+    return _to_response(workshop, current_user=current_user)
 
 
 @router.delete("/my/{workshop_id}")

@@ -75,6 +75,7 @@ class TutorProfileResponse(BaseModel):
     timezone: Optional[str] = None
     offers_private: bool
     offers_group: bool
+    group_weekly_schedule: Optional[dict] = None
     total_students: int
     total_lessons: int
     rating: float

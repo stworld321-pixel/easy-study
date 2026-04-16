@@ -14,6 +14,10 @@ async def connect_to_mongo():
     else:
         temp_client = AsyncIOMotorClient(mongo_url)
 
+    # Force a connection attempt up front so the app fails fast if MongoDB is
+    # unavailable instead of starting with Beanie models left uninitialized.
+    await temp_client.admin.command("ping")
+
     from app.models.user import User
     from app.models.tutor import TutorProfile, Subject
     from app.models.booking import Booking, Review

@@ -124,6 +124,7 @@ export interface WorkshopResponse {
   tutor_id: string;
   tutor_user_id: string;
   public_url?: string;
+  join_url?: string;
   title: string;
   description?: string;
   modules: string[];

@@ -33,6 +33,7 @@ export interface TutorProfile {
   timezone?: string;
   offers_private: boolean;
   offers_group: boolean;
+  group_weekly_schedule?: Record<string, Array<{ start_time: string; end_time: string }>>;
   total_students: number;
   total_lessons: number;
   rating: number;

@@ -20,6 +20,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"Failed to connect to database: {e}")
         traceback.print_exc()
+        raise
     yield
     await close_mongo_connection()
     app.state.database_connected = False

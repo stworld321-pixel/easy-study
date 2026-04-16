@@ -362,7 +362,7 @@ const StudentDashboard: React.FC = () => {
           {[
             { id: 'all', label: 'All Sessions' },
             { id: 'private', label: 'Private' },
-            { id: 'group', label: 'Group / Workshop' },
+            { id: 'group', label: 'Group Session / Workshop' },
           ].map((filter) => (
             <button
               key={filter.id}

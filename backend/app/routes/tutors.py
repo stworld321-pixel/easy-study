@@ -3,6 +3,7 @@ from typing import Optional, List
 import logging
 from datetime import datetime
 from app.models.tutor import TutorProfile
+from app.models.availability import TutorAvailability
 from app.models.user import User, UserRole
 from app.models.booking import Review
 from app.schemas.tutor import TutorProfileCreate, TutorProfileUpdate, TutorProfileResponse
@@ -14,7 +15,24 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def _to_tutor_response(tutor: TutorProfile) -> TutorProfileResponse:
+def _schedule_has_slots(schedule: Optional[dict]) -> bool:
+    if not isinstance(schedule, dict):
+        return False
+    for slots in schedule.values():
+        if isinstance(slots, list) and len(slots) > 0:
+            return True
+    return False
+
+
+async def _get_group_weekly_schedule(tutor_id: str) -> Optional[dict]:
+    availability = await TutorAvailability.find_one(TutorAvailability.tutor_id == tutor_id)
+    if not availability:
+        return None
+    return availability.group_weekly_schedule
+
+
+def _to_tutor_response(tutor: TutorProfile, group_weekly_schedule: Optional[dict] = None) -> TutorProfileResponse:
+    effective_offers_group = bool(tutor.offers_group or _schedule_has_slots(group_weekly_schedule))
     return TutorProfileResponse(
         id=str(tutor.id),
         user_id=tutor.user_id,
@@ -37,7 +55,8 @@ def _to_tutor_response(tutor: TutorProfile) -> TutorProfileResponse:
         city=tutor.city,
         timezone=tutor.timezone,
         offers_private=tutor.offers_private,
-        offers_group=tutor.offers_group,
+        offers_group=effective_offers_group,
+        group_weekly_schedule=group_weekly_schedule,
         total_students=tutor.total_students,
         total_lessons=tutor.total_lessons,
         rating=tutor.rating,
@@ -222,9 +241,6 @@ async def update_tutor_profile(
         raise HTTPException(status_code=404, detail="Tutor profile not found")
 
     update_data = profile_data.model_dump(exclude_unset=True)
-    # Group sessions are disabled in current product flow.
-    update_data["offers_group"] = False
-    update_data["group_hourly_rate"] = 0.0
     for field, value in update_data.items():
         setattr(tutor, field, value)
 
@@ -271,7 +287,8 @@ async def get_tutor(tutor_id: str):
     if not await _is_public_tutor_visible(tutor):
         raise HTTPException(status_code=404, detail="Tutor not found")
 
-    return _to_tutor_response(tutor)
+    group_weekly_schedule = await _get_group_weekly_schedule(str(tutor.id))
+    return _to_tutor_response(tutor, group_weekly_schedule=group_weekly_schedule)
 
 
 @router.get("/slug/{tutor_slug}", response_model=TutorProfileResponse)
@@ -294,7 +311,8 @@ async def get_tutor_by_slug(tutor_slug: str):
     if not await _is_public_tutor_visible(chosen):
         raise HTTPException(status_code=404, detail="Tutor not found")
 
-    return _to_tutor_response(chosen)
+    group_weekly_schedule = await _get_group_weekly_schedule(str(chosen.id))
+    return _to_tutor_response(chosen, group_weekly_schedule=group_weekly_schedule)
 
 @router.get("/{tutor_id}/reviews", response_model=List[ReviewResponse])
 async def get_tutor_reviews(tutor_id: str, skip: int = 0, limit: int = 10):
