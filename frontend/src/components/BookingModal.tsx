@@ -10,7 +10,7 @@ import type { CalendarDay } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { zonedDateTimeToUtcIso, getBrowserTimezone } from '../utils/datetime';
+import { zonedDateTimeToUtcIso, getBrowserTimezone, formatDateInIndia } from '../utils/datetime';
 
 const PENDING_BOOKING_KEY = 'zc:pendingBooking';
 
@@ -475,7 +475,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    return formatDateInIndia(date, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   };
 
   const getAvailableTimesForDate = (dateStr: string): DisplaySlot[] => {
@@ -704,7 +704,7 @@ const BookingModal: React.FC<BookingModalProps> = ({ tutor, onClose }) => {
                 <div>
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="font-semibold text-gray-900">
-                      {currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                      {formatDateInIndia(currentMonth, { month: 'long', year: 'numeric' })}
                     </h3>
                     <div className="flex gap-2">
                       <button

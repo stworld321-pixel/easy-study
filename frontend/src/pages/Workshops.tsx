@@ -5,6 +5,7 @@ import { workshopsAPI } from '../services/api';
 import type { WorkshopResponse } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
 import { isVideoUrl } from '../utils/media';
+import { formatDateTimeInIndia } from '../utils/datetime';
 
 const Workshops: React.FC = () => {
   const [workshops, setWorkshops] = useState<WorkshopResponse[]>([]);
@@ -107,7 +108,7 @@ const Workshops: React.FC = () => {
                   <div className="mt-4 space-y-2 text-sm text-gray-600">
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4" />
-                      {new Date(workshop.scheduled_at).toLocaleString()}
+                      {formatDateTimeInIndia(workshop.scheduled_at)} IST
                     </div>
                     <div className="flex items-center gap-2">
                       <Clock3 className="w-4 h-4" />

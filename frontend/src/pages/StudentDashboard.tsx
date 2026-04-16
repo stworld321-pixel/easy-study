@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import { bookingsAPI, materialsAPI } from '../services/api';
 import type { AssignmentResponse, BookingResponse, CompletionCertificateResponse, MaterialResponse, RatingResponse } from '../services/api';
 import ChatInbox from '../components/ChatInbox';
+import { formatDateInIndia, formatTimeInIndia } from '../utils/datetime';
 
 const StudentDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -442,7 +443,7 @@ const StudentDashboard: React.FC = () => {
                     <div className="flex items-center gap-2 text-gray-600">
                       <Calendar className="w-4 h-4" />
                       <span className="text-sm">
-                        {new Date(booking.scheduled_at).toLocaleDateString('en-US', {
+                        {formatDateInIndia(booking.scheduled_at, {
                           weekday: 'short',
                           month: 'short',
                           day: 'numeric'
@@ -452,7 +453,7 @@ const StudentDashboard: React.FC = () => {
                     <div className="flex items-center gap-2 text-gray-600">
                       <Clock className="w-4 h-4" />
                       <span className="text-sm">
-                        {new Date(booking.scheduled_at).toLocaleTimeString('en-US', {
+                        {formatTimeInIndia(booking.scheduled_at, {
                           hour: '2-digit',
                           minute: '2-digit'
                         })}
@@ -731,7 +732,7 @@ const StudentDashboard: React.FC = () => {
                       <div key={booking.id} className="flex items-center justify-between bg-white p-4 rounded-xl">
                         <div>
                           <p className="font-medium text-gray-900">{booking.tutor_name || 'Tutor'}</p>
-                          <p className="text-sm text-gray-600">{booking.subject} - {new Date(booking.scheduled_at).toLocaleDateString()}</p>
+                          <p className="text-sm text-gray-600">{booking.subject} - {formatDateInIndia(booking.scheduled_at)}</p>
                         </div>
                         <button
                           onClick={() => {
@@ -875,7 +876,7 @@ const StudentDashboard: React.FC = () => {
                         )}
                         <p className="text-sm text-gray-600">Tutor: {certificate.tutor_name}</p>
                         <p className="text-xs text-gray-500 mt-1">
-                          Session: {new Date(certificate.session_date).toLocaleDateString()} | Certificate No: {certificate.certificate_number}
+                          Session: {formatDateInIndia(certificate.session_date)} | Certificate No: {certificate.certificate_number}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">

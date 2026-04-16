@@ -6,6 +6,7 @@ import type { WorkshopResponse } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { useCurrency } from '../context/CurrencyContext';
 import { isVideoUrl } from '../utils/media';
+import { formatDateTimeInIndia } from '../utils/datetime';
 
 interface RazorpayOptions {
   key: string;
@@ -254,7 +255,7 @@ const WorkshopDetail: React.FC = () => {
               </div>
               <div className="inline-flex items-center gap-2">
                 <Calendar className="w-4 h-4" />
-                {new Date(workshop.scheduled_at).toLocaleString()}
+                {formatDateTimeInIndia(workshop.scheduled_at)} IST
               </div>
               <div className="inline-flex items-center gap-2">
                 <Clock3 className="w-4 h-4" />

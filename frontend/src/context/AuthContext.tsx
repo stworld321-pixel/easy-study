@@ -36,6 +36,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     loadUser();
   }, [token]);
 
+  useEffect(() => {
+    const handleAuthCleared = () => {
+      setToken(null);
+      setUser(null);
+      setIsLoading(false);
+    };
+
+    window.addEventListener('zc-auth-cleared', handleAuthCleared as EventListener);
+    return () => {
+      window.removeEventListener('zc-auth-cleared', handleAuthCleared as EventListener);
+    };
+  }, []);
+
   const login = async (email: string, password: string) => {
     const response: AuthResponse = await authAPI.login(email, password);
     localStorage.setItem('token', response.access_token);

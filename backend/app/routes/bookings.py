@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 MEET_LINK_EXPIRE_GRACE_MINUTES = 15
 EFFECTIVE_MIN_NOTICE_HOURS = 1
 WORKSHOP_CERTIFICATE_GRACE_MINUTES = 30
+DEFAULT_APP_TIMEZONE = "Asia/Kolkata"
 
 
 def _build_jitsi_room_name(booking: Booking) -> str:
@@ -68,12 +69,12 @@ def _role_value(role: object) -> str:
     return getattr(role, "value", role)
 
 def _safe_zoneinfo(timezone_name: str | None) -> tzinfo:
-    tz_name = (timezone_name or "UTC").strip() or "UTC"
+    tz_name = (timezone_name or DEFAULT_APP_TIMEZONE).strip() or DEFAULT_APP_TIMEZONE
     try:
         return ZoneInfo(tz_name)
     except Exception:
         try:
-            return ZoneInfo("UTC")
+            return ZoneInfo(DEFAULT_APP_TIMEZONE)
         except Exception:
             return timezone.utc
 

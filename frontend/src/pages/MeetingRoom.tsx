@@ -4,6 +4,7 @@ import { AlertCircle, ExternalLink, Loader2, RefreshCw } from 'lucide-react';
 import { bookingsAPI, type BookingResponse, type MeetingAccessResponse } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { isMeetingExpired } from '../utils/jitsiMeeting';
+import { formatDateTimeInIndia } from '../utils/datetime';
 
 type JitsiApiInstance = {
   addListener: (event: string, callback: (...args: unknown[]) => void) => void;
@@ -125,11 +126,8 @@ const MeetingRoom: React.FC = () => {
           // `join_available_at` is a UTC ISO string — `new Date(...)` parses
           // it as UTC and `toLocaleString` renders it in the viewer's local
           // timezone, which is what the user actually wants to see.
-          const localJoinAt = new Date(rawDetail.join_available_at).toLocaleString(
-            undefined,
-            { dateStyle: 'medium', timeStyle: 'short' },
-          );
-          detail = `Session is not open yet. You can join after ${localJoinAt}.`;
+          const localJoinAt = formatDateTimeInIndia(rawDetail.join_available_at);
+          detail = `Session is not open yet. You can join after ${localJoinAt} IST.`;
         } else if (typeof rawDetail === 'string') {
           detail = rawDetail;
         } else {

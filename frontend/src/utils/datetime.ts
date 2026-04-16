@@ -18,6 +18,52 @@ export const getBrowserTimezone = (): string => {
   }
 };
 
+export const INDIA_TIMEZONE = 'Asia/Kolkata';
+
+export const formatDateTimeInIndia = (
+  input: string | Date,
+  options?: Intl.DateTimeFormatOptions,
+): string => {
+  const value = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(value.getTime())) return '-';
+  return value.toLocaleString('en-IN', {
+    timeZone: INDIA_TIMEZONE,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+    ...options,
+  });
+};
+
+export const formatDateInIndia = (
+  input: string | Date,
+  options?: Intl.DateTimeFormatOptions,
+): string => {
+  const value = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(value.getTime())) return '-';
+  return value.toLocaleDateString('en-IN', {
+    timeZone: INDIA_TIMEZONE,
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    ...options,
+  });
+};
+
+export const formatTimeInIndia = (
+  input: string | Date,
+  options?: Intl.DateTimeFormatOptions,
+): string => {
+  const value = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(value.getTime())) return '-';
+  return value.toLocaleTimeString('en-IN', {
+    timeZone: INDIA_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    ...options,
+  });
+};
+
 // Convert a wall-clock date + time in a specific IANA timezone to a UTC
 // ISO string ending in "Z".
 //

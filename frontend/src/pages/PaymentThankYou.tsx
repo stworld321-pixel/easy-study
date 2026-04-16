@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { CheckCircle2, Calendar, Clock, User, CreditCard } from 'lucide-react';
 import { bookingsAPI, paymentsAPI, type BookingResponse, type PaymentDetails } from '../services/api';
 import { useCurrency } from '../context/CurrencyContext';
+import { formatDateInIndia, formatTimeInIndia } from '../utils/datetime';
 
 const PaymentThankYou = () => {
   const [searchParams] = useSearchParams();
@@ -44,15 +45,14 @@ const PaymentThankYou = () => {
 
   const scheduledDisplay = useMemo(() => {
     if (!booking?.scheduled_at) return null;
-    const dt = new Date(booking.scheduled_at);
     return {
-      date: dt.toLocaleDateString('en-US', {
+      date: formatDateInIndia(booking.scheduled_at, {
         weekday: 'long',
         year: 'numeric',
         month: 'long',
         day: 'numeric',
       }),
-      time: dt.toLocaleTimeString('en-US', {
+      time: formatTimeInIndia(booking.scheduled_at, {
         hour: '2-digit',
         minute: '2-digit',
       }),

@@ -23,18 +23,24 @@ from app.routes.auth import get_current_user
 
 router = APIRouter()
 EFFECTIVE_MIN_NOTICE_HOURS = 0
+DEFAULT_APP_TIMEZONE = "Asia/Kolkata"
 
 async def get_or_create_availability(tutor_id: str) -> TutorAvailability:
     """Get tutor availability or create default one"""
     availability = await TutorAvailability.find_one(TutorAvailability.tutor_id == tutor_id)
     if not availability:
-        availability = TutorAvailability(tutor_id=tutor_id)
+        availability = TutorAvailability(tutor_id=tutor_id, timezone=DEFAULT_APP_TIMEZONE)
         await availability.insert()
     # Backfill legacy data into new split schedules.
     if (not availability.private_weekly_schedule) and availability.weekly_schedule:
         availability.private_weekly_schedule = availability.weekly_schedule
     if availability.group_session_capacity < 1:
         availability.group_session_capacity = 1
+    tz_name = (availability.timezone or "").strip()
+    if not tz_name or tz_name.upper() == "UTC":
+        availability.timezone = DEFAULT_APP_TIMEZONE
+        availability.updated_at = datetime.utcnow()
+        await availability.save()
     return availability
 
 
@@ -90,12 +96,12 @@ def _to_session_type_value(raw: object) -> str:
     return getattr(raw, "value", str(raw))
 
 def _get_tutor_timezone(availability: TutorAvailability) -> tzinfo:
-    timezone_name = (availability.timezone or "UTC").strip() or "UTC"
+    timezone_name = (availability.timezone or DEFAULT_APP_TIMEZONE).strip() or DEFAULT_APP_TIMEZONE
     try:
         return ZoneInfo(timezone_name)
     except Exception:
         try:
-            return ZoneInfo("UTC")
+            return ZoneInfo(DEFAULT_APP_TIMEZONE)
         except Exception:
             return timezone.utc
 

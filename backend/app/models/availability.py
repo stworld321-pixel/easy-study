@@ -37,7 +37,7 @@ class BlockedDate(Document):
 class TutorAvailability(Document):
     """Overall availability settings for a tutor"""
     tutor_id: Indexed(str, unique=True)
-    timezone: str = "UTC"
+    timezone: str = "Asia/Kolkata"
     session_duration: int = 60  # Default 60 minutes
     buffer_time: int = 15  # Buffer between sessions in minutes
     advance_booking_days: int = 30  # How far in advance can book

@@ -14,6 +14,7 @@ import { tutorsAPI, availabilityAPI, bookingsAPI, withdrawalAPI, materialsAPI, u
 import ImageUpload from '../components/ImageUpload';
 import ChatInbox from '../components/ChatInbox';
 import { isVideoUrl } from '../utils/media';
+import { formatDateInIndia, formatDateTimeInIndia, formatTimeInIndia } from '../utils/datetime';
 import type { TutorProfile } from '../types';
 import type { AvailabilitySettings, WeeklySchedule, TimeSlot, CalendarDay, BlockedDate, BookingResponse, TutorStats, WithdrawalResponse, MaterialResponse, AssignmentResponse, RatingResponse, BookedStudent, WorkshopResponse, WorkshopCreateInput, TutorPaymentListItem } from '../services/api';
 
@@ -1913,7 +1914,7 @@ const TutorDashboard: React.FC = () => {
                       <div className="mt-3 flex flex-col gap-2 text-sm text-gray-600 sm:flex-row sm:items-center sm:gap-4">
                         <div className="flex items-center gap-1">
                           <Calendar className="w-4 h-4" />
-                          {new Date(booking.scheduled_at).toLocaleDateString('en-US', {
+                          {formatDateInIndia(booking.scheduled_at, {
                             weekday: 'short',
                             month: 'short',
                             day: 'numeric'
@@ -1921,7 +1922,7 @@ const TutorDashboard: React.FC = () => {
                         </div>
                         <div className="flex items-center gap-1">
                           <Clock className="w-4 h-4" />
-                          {new Date(booking.scheduled_at).toLocaleTimeString('en-US', {
+                          {formatTimeInIndia(booking.scheduled_at, {
                             hour: '2-digit',
                             minute: '2-digit'
                           })}
@@ -2238,7 +2239,7 @@ const TutorDashboard: React.FC = () => {
                         <div className="min-w-0">
                           <h4 className="font-semibold text-gray-900">{workshop.title}</h4>
                           <p className="text-sm text-gray-600 mt-1">
-                            {new Date(workshop.scheduled_at).toLocaleString()} | {workshop.duration_minutes} mins | {workshop.max_participants} seats
+                            {formatDateTimeInIndia(workshop.scheduled_at)} IST | {workshop.duration_minutes} mins | {workshop.max_participants} seats
                           </p>
                           <p className="text-sm text-gray-700 mt-1">{workshop.currency} {workshop.amount.toFixed(2)}</p>
                           {workshop.modules?.length > 0 && (
@@ -3392,10 +3393,10 @@ const TutorDashboard: React.FC = () => {
                         return (
                           <tr key={p.id} className="hover:bg-gray-50">
                             <td className="px-4 py-4 text-sm text-gray-700">
-                              {schedule ? schedule.toLocaleDateString() : '-'}
+                              {schedule ? formatDateInIndia(schedule) : '-'}
                             </td>
                             <td className="px-4 py-4 text-sm text-gray-700">
-                              {schedule ? schedule.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}
+                              {schedule ? formatTimeInIndia(schedule, { hour: '2-digit', minute: '2-digit' }) : '-'}
                             </td>
                             <td className="px-4 py-4 text-sm font-medium text-gray-800">
                               {p.student_name || 'Student'}
