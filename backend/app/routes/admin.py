@@ -443,7 +443,7 @@ async def get_all_bookings(
 @router.put("/bookings/{booking_id}/status")
 async def update_booking_status(
     booking_id: str,
-    status: str = Query(..., regex="^(pending|confirmed|completed|cancelled)$"),
+    status: str = Query(..., pattern="^(pending|confirmed|completed|cancelled)$"),
     admin: User = Depends(get_admin_user)
 ):
     """Update booking status"""
@@ -490,7 +490,7 @@ class MarkRefundedRequest(BaseModel):
 
 @router.get("/refunds", response_model=List[RefundItem])
 async def list_refunds(
-    refund_status: str = Query("pending", regex="^(pending|completed|all)$"),
+    refund_status: str = Query("pending", pattern="^(pending|completed|all)$"),
     admin: User = Depends(get_admin_user),
 ):
     """List paid bookings that were cancelled and need (or have received) a refund.

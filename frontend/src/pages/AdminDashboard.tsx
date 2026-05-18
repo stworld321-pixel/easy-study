@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, GraduationCap, Briefcase, Calendar,
@@ -97,6 +97,8 @@ const AdminDashboard: React.FC = () => {
   const [showBlogEditor, setShowBlogEditor] = useState(false);
   const [editingBlogId, setEditingBlogId] = useState<string | null>(null);
   const [blogForm, setBlogForm] = useState<BlogFormData>(emptyBlogForm);
+  const [blogEditorMode, setBlogEditorMode] = useState<'visual' | 'html'>('visual');
+  const visualEditorRef = useRef<HTMLDivElement | null>(null);
   const [tagInput, setTagInput] = useState('');
 
   // Action loading
@@ -348,7 +350,25 @@ const AdminDashboard: React.FC = () => {
     setShowBlogEditor(false);
     setEditingBlogId(null);
     setBlogForm(emptyBlogForm);
+    setBlogEditorMode('visual');
     setTagInput('');
+  };
+
+  useEffect(() => {
+    if (!showBlogEditor || blogEditorMode !== 'visual' || !visualEditorRef.current) return;
+    if (visualEditorRef.current.innerHTML !== blogForm.content) {
+      visualEditorRef.current.innerHTML = blogForm.content || '';
+    }
+  }, [showBlogEditor, blogEditorMode, blogForm.content]);
+
+  const applyVisualCommand = (command: string, value?: string) => {
+    if (blogEditorMode !== 'visual') return;
+    visualEditorRef.current?.focus();
+    document.execCommand(command, false, value);
+    setBlogForm((prev) => ({
+      ...prev,
+      content: visualEditorRef.current?.innerHTML || '',
+    }));
   };
 
   const handleAddTag = () => {
@@ -1846,14 +1866,62 @@ const AdminDashboard: React.FC = () => {
 
                       {/* Content */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Content * (Markdown supported)</label>
-                        <textarea
-                          value={blogForm.content}
-                          onChange={(e) => setBlogForm({ ...blogForm, content: e.target.value })}
-                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono text-sm"
-                          rows={12}
-                          placeholder="Write your blog content here... You can use Markdown for formatting."
-                        />
+                        <div className="flex items-center justify-between mb-2">
+                          <label className="block text-sm font-medium text-gray-700">Content *</label>
+                          <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => setBlogEditorMode('visual')}
+                              className={`px-3 py-1.5 text-xs font-medium ${blogEditorMode === 'visual' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                            >
+                              Visual
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setBlogEditorMode('html')}
+                              className={`px-3 py-1.5 text-xs font-medium border-l border-gray-200 ${blogEditorMode === 'html' ? 'bg-primary-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                            >
+                              HTML
+                            </button>
+                          </div>
+                        </div>
+
+                        {blogEditorMode === 'visual' ? (
+                          <div className="border border-gray-200 rounded-xl overflow-hidden">
+                            <div className="flex flex-wrap items-center gap-2 p-2 border-b border-gray-200 bg-gray-50">
+                              <button type="button" onClick={() => applyVisualCommand('bold')} className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100 font-bold">B</button>
+                              <button type="button" onClick={() => applyVisualCommand('italic')} className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100 italic">I</button>
+                              <button type="button" onClick={() => applyVisualCommand('formatBlock', 'H2')} className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100">H2</button>
+                              <button type="button" onClick={() => applyVisualCommand('insertUnorderedList')} className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100">UL</button>
+                              <button type="button" onClick={() => applyVisualCommand('insertOrderedList')} className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100">OL</button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const link = window.prompt('Enter URL');
+                                  if (link) applyVisualCommand('createLink', link);
+                                }}
+                                className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100"
+                              >
+                                Link
+                              </button>
+                            </div>
+                            <div
+                              ref={visualEditorRef}
+                              contentEditable
+                              suppressContentEditableWarning
+                              onInput={(e) => setBlogForm({ ...blogForm, content: (e.currentTarget as HTMLDivElement).innerHTML })}
+                              className="min-h-[280px] p-4 focus:outline-none text-sm leading-relaxed"
+                            />
+                          </div>
+                        ) : (
+                          <textarea
+                            value={blogForm.content}
+                            onChange={(e) => setBlogForm({ ...blogForm, content: e.target.value })}
+                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 font-mono text-sm"
+                            rows={12}
+                            placeholder="Write/edit raw HTML here..."
+                          />
+                        )}
                       </div>
 
                       {/* Featured Image */}

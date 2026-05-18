@@ -129,12 +129,13 @@ def _verify_firebase_token_sync(credential: str) -> Optional["GoogleUserInfo"]:
 @router.post("/register", response_model=Token)
 async def register(user_data: UserCreate):
     try:
-        existing_user = await User.find_one({"email": user_data.email})
+        normalized_email = user_data.email.strip().lower()
+        existing_user = await User.find_one({"email": normalized_email})
         if existing_user:
             raise HTTPException(status_code=400, detail="Email already registered")
 
         user = User(
-            email=user_data.email,
+            email=normalized_email,
             hashed_password=get_password_hash(user_data.password),
             full_name=user_data.full_name,
             role=user_data.role,
@@ -206,7 +207,8 @@ async def register(user_data: UserCreate):
 
 @router.post("/login", response_model=Token)
 async def login(credentials: UserLogin):
-    user = await User.find_one({"email": credentials.email})
+    normalized_email = credentials.email.strip().lower()
+    user = await User.find_one({"email": normalized_email})
     if not user or not verify_password(credentials.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
@@ -346,7 +348,8 @@ async def google_auth(request: GoogleAuthRequest):
         raise HTTPException(status_code=401, detail="Invalid Google token")
 
     # Check if user exists
-    user = await User.find_one({"email": google_user.email})
+    normalized_email = google_user.email.strip().lower()
+    user = await User.find_one({"email": normalized_email})
 
     if user:
         # Existing user - log them in
@@ -369,7 +372,7 @@ async def google_auth(request: GoogleAuthRequest):
         role = UserRole.TUTOR if request.role == "tutor" else UserRole.STUDENT
 
         user = User(
-            email=google_user.email,
+            email=normalized_email,
             hashed_password="",  # No password for OAuth users
             full_name=google_user.name,
             role=role,
