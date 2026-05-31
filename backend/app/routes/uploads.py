@@ -222,6 +222,40 @@ async def upload_workshop_image(
     }
 
 
+@router.post("/blog-image")
+async def upload_blog_image(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Upload an image for rich blog content.
+    Admin only; returns a URL that can be inserted into the blog editor.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can upload blog images")
+
+    file_data = await file.read()
+    if len(file_data) == 0:
+        raise HTTPException(status_code=400, detail="Empty file")
+
+    result = minio_service.upload_image(
+        file_data=file_data,
+        filename=file.filename or "blog-image.jpg",
+        folder="blogs"
+    )
+
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to upload blog image")
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+
+    return {
+        "success": True,
+        "url": result["url"],
+        "message": "Blog image uploaded successfully"
+    }
+
+
 @router.post("/tutor-signature")
 async def upload_tutor_signature(
     file: UploadFile = File(...),

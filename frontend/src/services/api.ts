@@ -1070,6 +1070,17 @@ export const uploadAPI = {
     return response.data;
   },
 
+  uploadBlogImage: async (file: File): Promise<UploadResponse> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post('/uploads/blog-image', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  },
+
   uploadTutorSignature: async (file: File, removeBackground = true): Promise<UploadResponse> => {
     const formData = new FormData();
     formData.append('file', file);

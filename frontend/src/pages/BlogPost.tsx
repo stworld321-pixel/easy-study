@@ -1,19 +1,44 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Calendar, Eye, Heart, Tag, ArrowLeft, Share2, Copy, Check,
-  Twitter, Facebook, Linkedin, Clock
+  Twitter, Facebook, Linkedin, Clock, ArrowRight, BookOpen
 } from 'lucide-react';
 import { blogAPI } from '../services/api';
 import type { BlogPost as BlogPostType, BlogListItem } from '../services/api';
 import ReactMarkdown from 'react-markdown';
+
+const hasHtmlMarkup = (content: string) => /<\/?[a-z][\s\S]*>/i.test(content);
+
+const sanitizeRichHtml = (content: string) => {
+  if (typeof window === 'undefined') return content;
+
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(content, 'text/html');
+  doc.querySelectorAll('script, style, iframe, object, embed, form, input, button').forEach((node) => node.remove());
+  doc.body.querySelectorAll('*').forEach((node) => {
+    Array.from(node.attributes).forEach((attribute) => {
+      const name = attribute.name.toLowerCase();
+      const value = attribute.value.trim().toLowerCase();
+      if (name.startsWith('on')) {
+        node.removeAttribute(attribute.name);
+      }
+      if ((name === 'href' || name === 'src') && value.startsWith('javascript:')) {
+        node.removeAttribute(attribute.name);
+      }
+    });
+  });
+
+  return doc.body.innerHTML;
+};
 
 const BlogPost: React.FC = () => {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
   const [blog, setBlog] = useState<BlogPostType | null>(null);
   const [relatedBlogs, setRelatedBlogs] = useState<BlogListItem[]>([]);
+  const [recentBlogs, setRecentBlogs] = useState<BlogListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [liked, setLiked] = useState(false);
@@ -35,11 +60,15 @@ const BlogPost: React.FC = () => {
       setBlog(data);
       setLikes(data.likes);
 
-      // Fetch related blogs from same category
-      if (data.category) {
-        const related = await blogAPI.getPublicBlogs({ category: data.category, per_page: 3 });
-        setRelatedBlogs(related.blogs.filter(b => b.id !== data.id).slice(0, 3));
-      }
+      const [related, recent] = await Promise.all([
+        data.category
+          ? blogAPI.getPublicBlogs({ category: data.category, per_page: 4 })
+          : Promise.resolve({ blogs: [], total: 0, page: 1, per_page: 4, total_pages: 0 }),
+        blogAPI.getPublicBlogs({ per_page: 5 }),
+      ]);
+
+      setRelatedBlogs(related.blogs.filter(b => b.id !== data.id).slice(0, 3));
+      setRecentBlogs(recent.blogs.filter(b => b.id !== data.id).slice(0, 4));
     } catch {
       setError('Blog post not found');
     } finally {
@@ -88,10 +117,16 @@ const BlogPost: React.FC = () => {
   // Estimate reading time
   const getReadingTime = (content: string) => {
     const wordsPerMinute = 200;
-    const wordCount = content.split(/\s+/).length;
+    const wordCount = content.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(Boolean).length;
     const minutes = Math.ceil(wordCount / wordsPerMinute);
     return minutes;
   };
+
+  const contentIsHtml = Boolean(blog?.content && hasHtmlMarkup(blog.content));
+  const safeHtmlContent = useMemo(
+    () => (blog?.content && contentIsHtml ? sanitizeRichHtml(blog.content) : ''),
+    [blog?.content, contentIsHtml]
+  );
 
   if (loading) {
     return (
@@ -149,7 +184,7 @@ const BlogPost: React.FC = () => {
 
         {/* Title Section */}
         <div className={`${blog.featured_image ? 'absolute bottom-0 left-0 right-0 text-white' : 'bg-white text-gray-900'}`}>
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -182,15 +217,15 @@ const BlogPost: React.FC = () => {
       </section>
 
       {/* Content Section */}
-      <section className="py-12">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid lg:grid-cols-[1fr_280px] gap-8">
+      <section className="py-12 md:py-16">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-8 lg:gap-10 items-start">
             {/* Main Content */}
             <motion.article
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="bg-white rounded-2xl shadow-sm p-6 md:p-10"
+              className="bg-white rounded-2xl shadow-sm p-6 md:p-10 lg:p-12"
             >
               {/* Meta Info */}
               <div className="flex flex-wrap items-center gap-4 pb-6 mb-8 border-b border-gray-100">
@@ -224,8 +259,12 @@ const BlogPost: React.FC = () => {
               </div>
 
               {/* Blog Content */}
-              <div className="prose prose-lg max-w-none prose-headings:text-gray-900 prose-p:text-gray-700 prose-a:text-primary-600 prose-strong:text-gray-900 prose-img:rounded-xl">
-                <ReactMarkdown>{blog.content}</ReactMarkdown>
+              <div className="blog-rich-content max-w-none">
+                {contentIsHtml ? (
+                  <div dangerouslySetInnerHTML={{ __html: safeHtmlContent }} />
+                ) : (
+                  <ReactMarkdown>{blog.content}</ReactMarkdown>
+                )}
               </div>
 
               {/* Tags */}
@@ -318,7 +357,7 @@ const BlogPost: React.FC = () => {
             </motion.article>
 
             {/* Sidebar */}
-            <aside className="space-y-6">
+            <aside className="space-y-6 lg:sticky lg:top-24">
               {/* Author Card */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
@@ -345,12 +384,55 @@ const BlogPost: React.FC = () => {
                 </p>
               </motion.div>
 
+              {/* Recent Posts */}
+              {recentBlogs.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="bg-white rounded-2xl shadow-sm p-6"
+                >
+                  <h3 className="font-bold text-gray-900 mb-4">Recent Posts</h3>
+                  <div className="space-y-4">
+                    {recentBlogs.map(recent => (
+                      <Link
+                        key={recent.id}
+                        to={`/blog/${recent.slug}`}
+                        className="block group"
+                      >
+                        <div className="flex gap-3">
+                          {recent.featured_image ? (
+                            <img
+                              src={recent.featured_image}
+                              alt={recent.title}
+                              className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-16 h-16 rounded-lg bg-primary-50 flex items-center justify-center flex-shrink-0">
+                              <BookOpen className="w-6 h-6 text-primary-500" />
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <h4 className="font-medium text-gray-900 line-clamp-2 group-hover:text-primary-600 transition-colors text-sm">
+                              {recent.title}
+                            </h4>
+                            <span className="text-xs text-gray-500">
+                              {new Date(recent.published_at || recent.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+
               {/* Related Posts */}
               {relatedBlogs.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.3 }}
+                  transition={{ delay: 0.35 }}
                   className="bg-white rounded-2xl shadow-sm p-6"
                 >
                   <h3 className="font-bold text-gray-900 mb-4">Related Articles</h3>
@@ -386,25 +468,27 @@ const BlogPost: React.FC = () => {
                 </motion.div>
               )}
 
-              {/* Newsletter Signup */}
+              {/* Booking CTA */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.4 }}
-                className="bg-gradient-to-br from-primary-600 to-secondary-600 rounded-2xl p-6 text-white"
+                className="rounded-2xl bg-gradient-to-br from-primary-600 to-secondary-600 p-6 text-white shadow-sm"
               >
-                <h3 className="font-bold mb-2">Subscribe to our Newsletter</h3>
-                <p className="text-sm text-white/80 mb-4">
-                  Get the latest articles and updates delivered to your inbox.
+                <div className="w-12 h-12 rounded-xl bg-white/15 flex items-center justify-center mb-4">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <h3 className="font-bold text-lg mb-2">Need help with this topic?</h3>
+                <p className="text-sm text-white/85 mb-5">
+                  Book a one-on-one session with an expert tutor and get guidance tailored to your goals.
                 </p>
-                <input
-                  type="email"
-                  placeholder="Enter your email"
-                  className="w-full px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/30 mb-3"
-                />
-                <button className="w-full px-4 py-3 bg-white text-primary-600 font-medium rounded-xl hover:bg-white/90 transition-colors">
-                  Subscribe
-                </button>
+                <Link
+                  to="/find-tutors"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 font-medium text-primary-700 transition-colors hover:bg-white/90"
+                >
+                  Book a Session
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
               </motion.div>
             </aside>
           </div>

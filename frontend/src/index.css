@@ -50,6 +50,95 @@
   .glass-card {
     @apply bg-white/80 backdrop-blur-lg rounded-2xl shadow-lg border border-white/20;
   }
+
+  .blog-rich-content {
+    @apply text-base md:text-lg text-gray-700 leading-relaxed;
+  }
+
+  .blog-rich-content > :first-child,
+  .blog-rich-content > div > :first-child {
+    @apply mt-0;
+  }
+
+  .blog-rich-content > :last-child,
+  .blog-rich-content > div > :last-child {
+    @apply mb-0;
+  }
+
+  .blog-rich-content h1 {
+    @apply text-3xl font-bold text-gray-900 mt-8 mb-4;
+  }
+
+  .blog-rich-content h2 {
+    @apply text-2xl font-bold text-gray-900 mt-8 mb-3;
+  }
+
+  .blog-rich-content h3 {
+    @apply text-xl font-semibold text-gray-900 mt-6 mb-3;
+  }
+
+  .blog-rich-content p,
+  .blog-rich-content ul,
+  .blog-rich-content ol,
+  .blog-rich-content blockquote,
+  .blog-rich-content pre,
+  .blog-rich-content table,
+  .blog-rich-content figure {
+    @apply mb-6;
+  }
+
+  .blog-rich-content li {
+    @apply mb-2;
+  }
+
+  .blog-rich-content ul {
+    @apply list-disc pl-6;
+  }
+
+  .blog-rich-content ol {
+    @apply list-decimal pl-6;
+  }
+
+  .blog-rich-content a {
+    @apply text-primary-600 underline underline-offset-2;
+  }
+
+  .blog-rich-content blockquote {
+    @apply border-l-4 border-primary-300 pl-4 italic text-gray-600 bg-primary-50 py-3 rounded-r-lg;
+  }
+
+  .blog-rich-content img {
+    @apply max-w-full h-auto rounded-xl;
+  }
+
+  .blog-rich-content figcaption {
+    @apply text-center text-sm text-gray-500 mt-2;
+  }
+
+  .blog-rich-content table {
+    @apply w-full border-collapse overflow-hidden rounded-lg;
+  }
+
+  .blog-rich-content th,
+  .blog-rich-content td {
+    @apply border border-gray-200 px-4 py-3 text-left align-top;
+  }
+
+  .blog-rich-content th {
+    @apply bg-gray-50 font-semibold text-gray-900;
+  }
+
+  .blog-rich-content pre {
+    @apply overflow-x-auto rounded-lg bg-gray-900 p-4 text-sm text-gray-100;
+  }
+
+  .blog-rich-content code {
+    @apply rounded bg-gray-100 px-1.5 py-0.5 text-sm text-gray-900;
+  }
+
+  .blog-rich-content pre code {
+    @apply bg-transparent p-0 text-gray-100;
+  }
 }
 
 @layer utilities {

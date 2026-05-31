@@ -7,11 +7,15 @@ import {
   CheckCircle, Clock, UserCheck, BarChart3,
   Wallet, UserPlus, Percent, ArrowUpRight,
   FileText, Plus, Edit3, Send, Archive, Star,
-  ArrowDownCircle, Building, Smartphone, CreditCard, MessageSquare
+  ArrowDownCircle, Building, Smartphone, CreditCard, MessageSquare,
+  Bold, Italic, Underline, Strikethrough, List, ListOrdered,
+  Link2, ImagePlus, AlignLeft, AlignCenter, AlignRight,
+  AlignJustify, Quote, Code2, Undo2, Redo2, Minus,
+  RemoveFormatting, Palette, Upload, Table2
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { adminAPI, blogAPI, withdrawalAPI } from '../services/api';
+import { adminAPI, blogAPI, uploadAPI, withdrawalAPI } from '../services/api';
 import type { DashboardStats, AdminUser, AdminTutor, AdminBooking, RevenueStats, PaymentRecord, BlogListItem, BlogPost, WithdrawalResponse, WithdrawalStats, RefundItem } from '../services/api';
 import ChatInbox from '../components/ChatInbox';
 
@@ -99,7 +103,11 @@ const AdminDashboard: React.FC = () => {
   const [blogForm, setBlogForm] = useState<BlogFormData>(emptyBlogForm);
   const [blogEditorMode, setBlogEditorMode] = useState<'visual' | 'html'>('visual');
   const visualEditorRef = useRef<HTMLDivElement | null>(null);
+  const blogImageInputRef = useRef<HTMLInputElement | null>(null);
+  const featuredImageInputRef = useRef<HTMLInputElement | null>(null);
   const [tagInput, setTagInput] = useState('');
+  const [blogImageUploading, setBlogImageUploading] = useState(false);
+  const [featuredImageUploading, setFeaturedImageUploading] = useState(false);
 
   // Action loading
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -369,6 +377,89 @@ const AdminDashboard: React.FC = () => {
       ...prev,
       content: visualEditorRef.current?.innerHTML || '',
     }));
+  };
+
+  const syncVisualEditorContent = () => {
+    setBlogForm((prev) => ({
+      ...prev,
+      content: visualEditorRef.current?.innerHTML || '',
+    }));
+  };
+
+  const insertVisualHtml = (html: string) => {
+    if (blogEditorMode !== 'visual') return;
+    visualEditorRef.current?.focus();
+    document.execCommand('insertHTML', false, html);
+    syncVisualEditorContent();
+  };
+
+  const escapeHtml = (value: string) =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  const insertBlogImage = (url: string, alt = '') => {
+    const safeUrl = url.trim();
+    if (!safeUrl) return;
+    const safeSrc = escapeHtml(safeUrl);
+    const safeAlt = escapeHtml(alt);
+    insertVisualHtml(
+      `<figure><img src="${safeSrc}" alt="${safeAlt}" style="max-width:100%;height:auto;border-radius:12px;" /><figcaption>${safeAlt}</figcaption></figure><p><br></p>`
+    );
+  };
+
+  const handleInsertImageByUrl = () => {
+    const url = window.prompt('Image URL');
+    if (!url) return;
+    const alt = window.prompt('Alt text or caption') || '';
+    insertBlogImage(url, alt);
+  };
+
+  const handleUploadBlogImage = async (file?: File) => {
+    if (!file) return;
+    setBlogImageUploading(true);
+    try {
+      const uploaded = await uploadAPI.uploadBlogImage(file);
+      insertBlogImage(uploaded.url, file.name.replace(/\.[^.]+$/, ''));
+      showMessage('success', 'Image inserted into blog content');
+    } catch {
+      showMessage('error', 'Failed to upload blog image');
+    } finally {
+      setBlogImageUploading(false);
+      if (blogImageInputRef.current) {
+        blogImageInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleUploadFeaturedImage = async (file?: File) => {
+    if (!file) return;
+    setFeaturedImageUploading(true);
+    try {
+      const uploaded = await uploadAPI.uploadBlogImage(file);
+      setBlogForm((prev) => ({ ...prev, featured_image: uploaded.url }));
+      showMessage('success', 'Featured image uploaded');
+    } catch {
+      showMessage('error', 'Failed to upload featured image');
+    } finally {
+      setFeaturedImageUploading(false);
+      if (featuredImageInputRef.current) {
+        featuredImageInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleInsertTable = () => {
+    insertVisualHtml(
+      '<table><thead><tr><th>Heading</th><th>Heading</th></tr></thead><tbody><tr><td>Value</td><td>Value</td></tr><tr><td>Value</td><td>Value</td></tr></tbody></table><p><br></p>'
+    );
+  };
+
+  const handleInsertCodeBlock = () => {
+    insertVisualHtml('<pre><code>Code block</code></pre><p><br></p>');
   };
 
   const handleAddTag = () => {
@@ -1888,29 +1979,134 @@ const AdminDashboard: React.FC = () => {
 
                         {blogEditorMode === 'visual' ? (
                           <div className="border border-gray-200 rounded-xl overflow-hidden">
-                            <div className="flex flex-wrap items-center gap-2 p-2 border-b border-gray-200 bg-gray-50">
-                              <button type="button" onClick={() => applyVisualCommand('bold')} className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100 font-bold">B</button>
-                              <button type="button" onClick={() => applyVisualCommand('italic')} className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100 italic">I</button>
-                              <button type="button" onClick={() => applyVisualCommand('formatBlock', 'H2')} className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100">H2</button>
-                              <button type="button" onClick={() => applyVisualCommand('insertUnorderedList')} className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100">UL</button>
-                              <button type="button" onClick={() => applyVisualCommand('insertOrderedList')} className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100">OL</button>
+                            <div className="flex flex-wrap items-center gap-1.5 p-2 border-b border-gray-200 bg-gray-50">
+                              <select
+                                aria-label="Text format"
+                                onChange={(e) => {
+                                  applyVisualCommand('formatBlock', e.target.value);
+                                  e.currentTarget.value = 'P';
+                                }}
+                                defaultValue="P"
+                                className="h-8 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                              >
+                                <option value="P">Paragraph</option>
+                                <option value="H1">Heading 1</option>
+                                <option value="H2">Heading 2</option>
+                                <option value="H3">Heading 3</option>
+                                <option value="BLOCKQUOTE">Quote</option>
+                                <option value="PRE">Code</option>
+                              </select>
+                              <select
+                                aria-label="Font size"
+                                onChange={(e) => {
+                                  applyVisualCommand('fontSize', e.target.value);
+                                  e.currentTarget.value = '3';
+                                }}
+                                defaultValue="3"
+                                className="h-8 rounded border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                              >
+                                <option value="2">Small</option>
+                                <option value="3">Normal</option>
+                                <option value="4">Large</option>
+                                <option value="5">XL</option>
+                              </select>
+
+                              {[
+                                { label: 'Bold', icon: Bold, action: () => applyVisualCommand('bold') },
+                                { label: 'Italic', icon: Italic, action: () => applyVisualCommand('italic') },
+                                { label: 'Underline', icon: Underline, action: () => applyVisualCommand('underline') },
+                                { label: 'Strikethrough', icon: Strikethrough, action: () => applyVisualCommand('strikeThrough') },
+                              ].map(({ label, icon: Icon, action }) => (
+                                <button key={label} type="button" title={label} onClick={action} className="p-1.5 rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100">
+                                  <Icon className="w-4 h-4" />
+                                </button>
+                              ))}
+
+                              <div className="h-6 w-px bg-gray-200" />
+                              {[
+                                { label: 'Bulleted list', icon: List, action: () => applyVisualCommand('insertUnorderedList') },
+                                { label: 'Numbered list', icon: ListOrdered, action: () => applyVisualCommand('insertOrderedList') },
+                                { label: 'Quote', icon: Quote, action: () => applyVisualCommand('formatBlock', 'BLOCKQUOTE') },
+                                { label: 'Code block', icon: Code2, action: handleInsertCodeBlock },
+                                { label: 'Divider', icon: Minus, action: () => applyVisualCommand('insertHorizontalRule') },
+                              ].map(({ label, icon: Icon, action }) => (
+                                <button key={label} type="button" title={label} onClick={action} className="p-1.5 rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100">
+                                  <Icon className="w-4 h-4" />
+                                </button>
+                              ))}
+
+                              <div className="h-6 w-px bg-gray-200" />
+                              {[
+                                { label: 'Align left', icon: AlignLeft, action: () => applyVisualCommand('justifyLeft') },
+                                { label: 'Align center', icon: AlignCenter, action: () => applyVisualCommand('justifyCenter') },
+                                { label: 'Align right', icon: AlignRight, action: () => applyVisualCommand('justifyRight') },
+                                { label: 'Justify', icon: AlignJustify, action: () => applyVisualCommand('justifyFull') },
+                              ].map(({ label, icon: Icon, action }) => (
+                                <button key={label} type="button" title={label} onClick={action} className="p-1.5 rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100">
+                                  <Icon className="w-4 h-4" />
+                                </button>
+                              ))}
+
+                              <div className="h-6 w-px bg-gray-200" />
+                              <label title="Text color" className="h-8 px-2 rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 inline-flex items-center gap-1 cursor-pointer">
+                                <Palette className="w-4 h-4" />
+                                <input
+                                  type="color"
+                                  className="w-5 h-5 border-0 p-0 bg-transparent cursor-pointer"
+                                  onChange={(e) => applyVisualCommand('foreColor', e.target.value)}
+                                />
+                              </label>
                               <button
                                 type="button"
+                                title="Insert link"
                                 onClick={() => {
                                   const link = window.prompt('Enter URL');
                                   if (link) applyVisualCommand('createLink', link);
                                 }}
-                                className="px-2 py-1 text-xs rounded border border-gray-200 bg-white hover:bg-gray-100"
+                                className="p-1.5 rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100"
                               >
-                                Link
+                                <Link2 className="w-4 h-4" />
                               </button>
+                              <button type="button" title="Insert image from URL" onClick={handleInsertImageByUrl} className="p-1.5 rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100">
+                                <ImagePlus className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Upload and insert image"
+                                onClick={() => blogImageInputRef.current?.click()}
+                                disabled={blogImageUploading}
+                                className="p-1.5 rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+                              >
+                                <Upload className="w-4 h-4" />
+                              </button>
+                              <input
+                                ref={blogImageInputRef}
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp,image/gif"
+                                className="hidden"
+                                onChange={(e) => handleUploadBlogImage(e.target.files?.[0])}
+                              />
+                              <button type="button" title="Insert table" onClick={handleInsertTable} className="p-1.5 rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100">
+                                <Table2 className="w-4 h-4" />
+                              </button>
+
+                              <div className="h-6 w-px bg-gray-200" />
+                              {[
+                                { label: 'Undo', icon: Undo2, action: () => applyVisualCommand('undo') },
+                                { label: 'Redo', icon: Redo2, action: () => applyVisualCommand('redo') },
+                                { label: 'Clear formatting', icon: RemoveFormatting, action: () => applyVisualCommand('removeFormat') },
+                              ].map(({ label, icon: Icon, action }) => (
+                                <button key={label} type="button" title={label} onClick={action} className="p-1.5 rounded border border-gray-200 bg-white text-gray-700 hover:bg-gray-100">
+                                  <Icon className="w-4 h-4" />
+                                </button>
+                              ))}
                             </div>
                             <div
                               ref={visualEditorRef}
                               contentEditable
                               suppressContentEditableWarning
                               onInput={(e) => setBlogForm({ ...blogForm, content: (e.currentTarget as HTMLDivElement).innerHTML })}
-                              className="min-h-[280px] p-4 focus:outline-none text-sm leading-relaxed"
+                              className="blog-rich-content min-h-[280px] p-4 focus:outline-none text-sm leading-relaxed"
                             />
                           </div>
                         ) : (
@@ -1926,14 +2122,41 @@ const AdminDashboard: React.FC = () => {
 
                       {/* Featured Image */}
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">Featured Image URL</label>
-                        <input
-                          type="url"
-                          value={blogForm.featured_image}
-                          onChange={(e) => setBlogForm({ ...blogForm, featured_image: e.target.value })}
-                          className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
-                          placeholder="https://example.com/image.jpg"
-                        />
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Featured Image</label>
+                        <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+                          <input
+                            type="url"
+                            value={blogForm.featured_image}
+                            onChange={(e) => setBlogForm({ ...blogForm, featured_image: e.target.value })}
+                            className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500"
+                            placeholder="https://example.com/image.jpg"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => featuredImageInputRef.current?.click()}
+                            disabled={featuredImageUploading}
+                            className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50"
+                          >
+                            <Upload className="w-4 h-4" />
+                            {featuredImageUploading ? 'Uploading...' : 'Upload'}
+                          </button>
+                          <input
+                            ref={featuredImageInputRef}
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,image/gif"
+                            className="hidden"
+                            onChange={(e) => handleUploadFeaturedImage(e.target.files?.[0])}
+                          />
+                        </div>
+                        {blogForm.featured_image && (
+                          <div className="mt-3 overflow-hidden rounded-xl border border-gray-200 bg-gray-50">
+                            <img
+                              src={blogForm.featured_image}
+                              alt="Featured preview"
+                              className="h-44 w-full object-cover"
+                            />
+                          </div>
+                        )}
                       </div>
 
                       {/* Category and Tags */}
