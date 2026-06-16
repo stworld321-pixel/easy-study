@@ -22,11 +22,15 @@ git pull --ff-only
 
 echo "[3/8] Installing backend dependencies..."
 cd "$BACKEND_DIR"
-if [ ! -d ".venv" ]; then
-  python3 -m venv .venv
+
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+if [ ! -x ".venv/bin/python" ] || readlink -f ".venv/bin/python" | grep -q "^/Library/"; then
+  echo "Backend venv missing or copied from macOS; recreating it on this server..."
+  rm -rf .venv
+  "$PYTHON_BIN" -m venv .venv
 fi
-. .venv/bin/activate
-pip install --disable-pip-version-check -r requirements.txt
+./.venv/bin/python -m pip install --disable-pip-version-check --upgrade pip
+./.venv/bin/python -m pip install --disable-pip-version-check -r requirements.txt
 
 echo "[4/8] Restarting backend service..."
 sudo systemctl restart "$BACKEND_SERVICE"
@@ -47,8 +51,18 @@ sudo nginx -t
 sudo systemctl reload nginx
 
 echo "[8/8] Health check..."
-sleep 1
-curl -fsS http://127.0.0.1:8000/health
+for attempt in {1..10}; do
+  if curl -fsS http://127.0.0.1:8000/health; then
+    break
+  fi
+  if [ "$attempt" -eq 10 ]; then
+    echo ""
+    echo "Backend health check failed. Recent service logs:"
+    sudo journalctl -u "$BACKEND_SERVICE" -n 80 --no-pager -l
+    exit 1
+  fi
+  sleep 2
+done
 
 echo ""
 echo "Deploy complete."
