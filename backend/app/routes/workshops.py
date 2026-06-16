@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 from types import SimpleNamespace
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -15,6 +16,7 @@ from app.routes.bookings import _build_jitsi_access_token, _resolve_meeting_doma
 from app.schemas.booking import UtcDatetime
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 def _normalize_to_utc_naive(dt: datetime) -> datetime:
@@ -101,26 +103,29 @@ def _to_response(workshop: Workshop, current_user: Optional[User] = None) -> Wor
     base_url = (settings.FRONTEND_URL or "").rstrip("/")
     public_url = f"{base_url}/workshops/{str(workshop.id)}" if base_url else None
     join_url = _build_tutor_join_url(workshop, current_user) if current_user else None
+    tutor_user_id = getattr(workshop, "tutor_user_id", None) or getattr(workshop, "tutor_id", "")
+    created_at = getattr(workshop, "created_at", None) or datetime.utcnow()
+    updated_at = getattr(workshop, "updated_at", None) or created_at
     return WorkshopResponse(
         id=str(workshop.id),
-        tutor_id=workshop.tutor_id,
-        tutor_user_id=workshop.tutor_user_id,
+        tutor_id=str(getattr(workshop, "tutor_id", "") or ""),
+        tutor_user_id=str(tutor_user_id),
         public_url=public_url,
         join_url=join_url,
-        title=workshop.title,
-        description=workshop.description,
-        modules=workshop.modules or [],
-        thumbnail_url=workshop.thumbnail_url,
-        amount=float(workshop.amount or 0),
-        currency=workshop.currency or "INR",
-        scheduled_at=workshop.scheduled_at,
-        duration_minutes=int(workshop.duration_minutes or 60),
-        max_participants=int(workshop.max_participants or 1),
-        is_active=bool(workshop.is_active),
-        tutor_name=workshop.tutor_name,
-        tutor_email=workshop.tutor_email,
-        created_at=workshop.created_at,
-        updated_at=workshop.updated_at,
+        title=getattr(workshop, "title", "") or "Workshop",
+        description=getattr(workshop, "description", None),
+        modules=getattr(workshop, "modules", None) or [],
+        thumbnail_url=getattr(workshop, "thumbnail_url", None),
+        amount=float(getattr(workshop, "amount", 0) or 0),
+        currency=getattr(workshop, "currency", None) or "INR",
+        scheduled_at=getattr(workshop, "scheduled_at", None) or datetime.utcnow(),
+        duration_minutes=int(getattr(workshop, "duration_minutes", 60) or 60),
+        max_participants=int(getattr(workshop, "max_participants", 1) or 1),
+        is_active=bool(getattr(workshop, "is_active", True)),
+        tutor_name=getattr(workshop, "tutor_name", None),
+        tutor_email=getattr(workshop, "tutor_email", None),
+        created_at=created_at,
+        updated_at=updated_at,
     )
 
 
@@ -168,7 +173,13 @@ async def get_public_workshops(
         .limit(limit)
         .to_list()
     )
-    return [_to_response(w) for w in workshops]
+    results: List[WorkshopResponse] = []
+    for workshop in workshops:
+        try:
+            results.append(_to_response(workshop))
+        except Exception:
+            logger.exception("Skipping invalid public workshop id=%s", getattr(workshop, "id", "unknown"))
+    return results
 
 
 @router.get("/public/{workshop_id}", response_model=WorkshopResponse)

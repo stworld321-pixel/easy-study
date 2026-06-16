@@ -19,7 +19,13 @@ const Workshops: React.FC = () => {
       setLoading(true);
       setError('');
       try {
-        const upcoming = await workshopsAPI.getPublicWorkshops({ upcoming_only: true, limit: 100 });
+        let upcoming: WorkshopResponse[] = [];
+        try {
+          upcoming = await workshopsAPI.getPublicWorkshops({ upcoming_only: true, limit: 100 });
+        } catch (upcomingError) {
+          console.error('Failed to load upcoming workshops:', upcomingError);
+        }
+
         const upcomingList = Array.isArray(upcoming) ? upcoming : [];
         if (upcomingList.length > 0) {
           setWorkshops(upcomingList);
@@ -28,7 +34,8 @@ const Workshops: React.FC = () => {
           const list = Array.isArray(allActive) ? allActive : [];
           setWorkshops(list);
         }
-      } catch {
+      } catch (error) {
+        console.error('Failed to load workshops:', error);
         setWorkshops([]);
         setError('Failed to load workshops.');
       } finally {
