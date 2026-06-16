@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.models.tutor import TutorProfile
-from app.models.booking import SessionType
+from app.models.booking import Booking, BookingStatus, SessionType
 from app.models.user import User, UserRole
 from app.models.workshop import Workshop
 from app.core.config import settings
@@ -76,7 +76,7 @@ class WorkshopResponse(BaseModel):
     updated_at: UtcDatetime
 
 
-def _build_tutor_join_url(workshop: Workshop, current_user: User) -> Optional[str]:
+def _build_tutor_direct_join_url(workshop: Workshop, current_user: User) -> Optional[str]:
     if _meeting_jwt_required() and not ((settings.JITSI_APP_SECRET or "").strip() or (settings.JAAS_PRIVATE_KEY or "").strip()):
         return None
 
@@ -99,10 +99,47 @@ def _build_tutor_join_url(workshop: Workshop, current_user: User) -> Optional[st
     return f"{meeting_url}?jwt={token}"
 
 
-def _to_response(workshop: Workshop, current_user: Optional[User] = None) -> WorkshopResponse:
+def _build_in_app_meeting_url(booking_id: str) -> Optional[str]:
+    base_url = (settings.FRONTEND_URL or "").rstrip("/")
+    return f"{base_url}/meeting/{booking_id}" if base_url else None
+
+
+async def _find_workshop_anchor_booking(workshop: Workshop) -> Optional[Booking]:
+    room_key = f"zc-w-{str(workshop.id)}".lower().replace(" ", "-")
+    booking = await Booking.find_one({
+        "tutor_id": str(workshop.tutor_id),
+        "is_workshop": True,
+        "status": BookingStatus.CONFIRMED.value,
+        "meeting_room_key": room_key,
+    })
+    if booking:
+        return booking
+
+    return await Booking.find_one({
+        "tutor_id": str(workshop.tutor_id),
+        "is_workshop": True,
+        "status": BookingStatus.CONFIRMED.value,
+        "notes": f"Workshop booking: {str(workshop.id)}",
+    })
+
+
+async def _build_tutor_join_url(workshop: Workshop, current_user: User) -> Optional[str]:
+    # Tutors must enter workshop sessions through the same in-app meeting
+    # endpoint as students. That endpoint latches tutor_joined_at on the
+    # BookingSlot, which lets waiting students join the exact same room.
+    anchor_booking = await _find_workshop_anchor_booking(workshop)
+    if anchor_booking:
+        return _build_in_app_meeting_url(str(anchor_booking.id))
+
+    # No paid/confirmed participant exists yet, so there is no shared booking
+    # context to authorize students against. Hide Join Workshop until then.
+    return None
+
+
+async def _to_response(workshop: Workshop, current_user: Optional[User] = None) -> WorkshopResponse:
     base_url = (settings.FRONTEND_URL or "").rstrip("/")
     public_url = f"{base_url}/workshops/{str(workshop.id)}" if base_url else None
-    join_url = _build_tutor_join_url(workshop, current_user) if current_user else None
+    join_url = await _build_tutor_join_url(workshop, current_user) if current_user else None
     tutor_user_id = getattr(workshop, "tutor_user_id", None) or getattr(workshop, "tutor_id", "")
     created_at = getattr(workshop, "created_at", None) or datetime.utcnow()
     updated_at = getattr(workshop, "updated_at", None) or created_at
@@ -143,7 +180,7 @@ async def _get_tutor_or_403(current_user: User) -> TutorProfile:
 async def get_my_workshops(current_user: User = Depends(get_current_user)):
     tutor = await _get_tutor_or_403(current_user)
     workshops = await Workshop.find(Workshop.tutor_id == str(tutor.id)).sort("-scheduled_at").to_list()
-    return [_to_response(w, current_user=current_user) for w in workshops]
+    return [await _to_response(w, current_user=current_user) for w in workshops]
 
 
 @router.get("/public", response_model=List[WorkshopResponse])
@@ -176,7 +213,7 @@ async def get_public_workshops(
     results: List[WorkshopResponse] = []
     for workshop in workshops:
         try:
-            results.append(_to_response(workshop))
+            results.append(await _to_response(workshop))
         except Exception:
             logger.exception("Skipping invalid public workshop id=%s", getattr(workshop, "id", "unknown"))
     return results
@@ -187,7 +224,7 @@ async def get_public_workshop_detail(workshop_id: str):
     workshop = await Workshop.get(workshop_id)
     if not workshop or not workshop.is_active:
         raise HTTPException(status_code=404, detail="Workshop not found")
-    return _to_response(workshop)
+    return await _to_response(workshop)
 
 
 @router.post("/my", response_model=WorkshopResponse)
@@ -212,7 +249,7 @@ async def create_workshop(payload: WorkshopCreate, current_user: User = Depends(
         updated_at=datetime.utcnow(),
     )
     await workshop.insert()
-    return _to_response(workshop, current_user=current_user)
+    return await _to_response(workshop, current_user=current_user)
 
 
 @router.put("/my/{workshop_id}", response_model=WorkshopResponse)
@@ -239,7 +276,7 @@ async def update_workshop(workshop_id: str, payload: WorkshopUpdate, current_use
     workshop.updated_at = datetime.utcnow()
 
     await workshop.save()
-    return _to_response(workshop, current_user=current_user)
+    return await _to_response(workshop, current_user=current_user)
 
 
 @router.delete("/my/{workshop_id}")

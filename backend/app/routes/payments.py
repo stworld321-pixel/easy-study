@@ -234,7 +234,13 @@ async def verify_razorpay_payment(
         workshop_confirmed = booking.status != BookingStatus.CONFIRMED
         booking.status = BookingStatus.CONFIRMED
         if not booking.meeting_room_key:
-            workshop_key_source = (booking.session_name or booking.subject or str(booking.id)).strip()
+            workshop_key_source = ""
+            if booking.notes and "workshop booking:" in booking.notes.lower():
+                try:
+                    workshop_key_source = booking.notes.split(":", 1)[1].strip()
+                except Exception:
+                    workshop_key_source = ""
+            workshop_key_source = workshop_key_source or (booking.session_name or booking.subject or str(booking.id)).strip()
             booking.meeting_room_key = f"zc-w-{workshop_key_source}".lower().replace(" ", "-")
         booking.meeting_provider = "jitsi"
         booking.meeting_origin = "workshop_payment"
