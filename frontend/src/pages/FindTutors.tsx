@@ -219,6 +219,7 @@ const FindTutors: React.FC = () => {
   const { user } = useAuth();
   const [tutors, setTutors] = useState<TutorProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [selectedTutorForBooking, setSelectedTutorForBooking] = useState<TutorProfile | null>(null);
   const { formatPrice } = useCurrency();
@@ -245,6 +246,7 @@ const FindTutors: React.FC = () => {
   useEffect(() => {
     const fetchTutors = async () => {
       setLoading(true);
+      setLoadError('');
       try {
         const params: Record<string, unknown> = {
           sort_by: sortBy,
@@ -258,149 +260,10 @@ const FindTutors: React.FC = () => {
 
         const data = await tutorsAPI.getAll(params);
         setTutors(Array.isArray(data) ? data : []);
-      } catch {
-        // Use mock tutors only in local development fallback.
-        if (!import.meta.env.DEV) {
-          setTutors([]);
-          return;
-        }
-        setTutors([
-          {
-            id: '1',
-            user_id: '1',
-            full_name: 'Dr. Sarah Johnson',
-            avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop',
-            headline: 'Expert Mathematics & Physics Tutor | PhD in Applied Mathematics',
-            bio: 'With over 10 years of teaching experience, I specialize in making complex mathematical concepts accessible and engaging. My students consistently achieve top grades and develop a genuine love for problem-solving.',
-            experience_years: 10,
-            education: 'PhD in Applied Mathematics',
-            certifications: [],
-            hourly_rate: 75,
-            currency: 'USD',
-            languages: ['English', 'Spanish'],
-            subjects: ['Mathematics', 'Physics', 'Calculus', 'Statistics'],
-            country: 'United States',
-            city: 'Boston',
-            offers_private: true,
-            offers_group: true,
-            total_students: 89,
-            total_lessons: 450,
-            rating: 4.9,
-            total_reviews: 156,
-            is_verified: true,
-            is_featured: true,
-            is_available: true,
-            created_at: '',
-          },
-          {
-            id: '2',
-            user_id: '2',
-            full_name: 'James Chen',
-            avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop',
-            headline: 'Full-Stack Developer & Programming Instructor',
-            bio: 'Former Google engineer with a passion for teaching. I help students master programming from basics to advanced concepts with hands-on projects and real-world applications.',
-            experience_years: 8,
-            education: 'MS in Computer Science',
-            certifications: [],
-            hourly_rate: 85,
-            currency: 'USD',
-            languages: ['English', 'Mandarin'],
-            subjects: ['Computer Science', 'Web Development', 'Python', 'JavaScript'],
-            country: 'United States',
-            city: 'San Francisco',
-            offers_private: true,
-            offers_group: true,
-            total_students: 67,
-            total_lessons: 380,
-            rating: 4.8,
-            total_reviews: 124,
-            is_verified: true,
-            is_featured: true,
-            is_available: true,
-            created_at: '',
-          },
-          {
-            id: '3',
-            user_id: '3',
-            full_name: 'Emma Williams',
-            avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200&h=200&fit=crop',
-            headline: 'IELTS & English Language Specialist',
-            bio: 'Native English speaker with expertise in IELTS preparation and academic writing. Helped hundreds of students achieve their target scores and gain admission to top universities.',
-            experience_years: 6,
-            education: 'MA in English Literature',
-            certifications: [],
-            hourly_rate: 55,
-            currency: 'USD',
-            languages: ['English', 'French'],
-            subjects: ['English', 'IELTS', 'Academic Writing', 'Grammar'],
-            country: 'United Kingdom',
-            city: 'London',
-            offers_private: true,
-            offers_group: false,
-            total_students: 145,
-            total_lessons: 620,
-            rating: 4.9,
-            total_reviews: 203,
-            is_verified: true,
-            is_featured: true,
-            is_available: true,
-            created_at: '',
-          },
-          {
-            id: '4',
-            user_id: '4',
-            full_name: 'Dr. Raj Patel',
-            avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop',
-            headline: 'Chemistry & Biology Expert | Medical Entrance Prep',
-            bio: 'Medical doctor and experienced educator specializing in chemistry and biology for pre-med students. I make complex scientific concepts easy to understand.',
-            experience_years: 12,
-            education: 'MD - Johns Hopkins University',
-            certifications: [],
-            hourly_rate: 90,
-            currency: 'USD',
-            languages: ['English', 'Hindi'],
-            subjects: ['Chemistry', 'Biology', 'Medical Sciences', 'Biochemistry'],
-            country: 'India',
-            city: 'Mumbai',
-            offers_private: true,
-            offers_group: true,
-            total_students: 52,
-            total_lessons: 280,
-            rating: 4.7,
-            total_reviews: 98,
-            is_verified: true,
-            is_featured: true,
-            is_available: false,
-            created_at: '',
-          },
-          {
-            id: '5',
-            user_id: '5',
-            full_name: 'Maria Garcia',
-            avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&h=200&fit=crop',
-            headline: 'Data Science & Machine Learning Instructor',
-            bio: 'Data scientist with experience at top tech companies. I teach practical data science skills with hands-on projects that prepare you for real-world challenges.',
-            experience_years: 5,
-            education: 'MS in Data Science',
-            certifications: [],
-            hourly_rate: 80,
-            currency: 'USD',
-            languages: ['English', 'Spanish'],
-            subjects: ['Data Science', 'Python', 'Machine Learning', 'Statistics'],
-            country: 'Spain',
-            city: 'Barcelona',
-            offers_private: true,
-            offers_group: true,
-            total_students: 43,
-            total_lessons: 195,
-            rating: 4.8,
-            total_reviews: 87,
-            is_verified: true,
-            is_featured: true,
-            is_available: true,
-            created_at: '',
-          },
-        ]);
+      } catch (error) {
+        console.error('Failed to fetch tutors:', error);
+        setTutors([]);
+        setLoadError('Unable to load real tutor data. Please check that the backend API is running and reachable.');
       } finally {
         setLoading(false);
       }
@@ -743,6 +606,18 @@ const FindTutors: React.FC = () => {
                   </div>
                 ))}
               </div>
+            ) : loadError ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="text-center py-16 px-6 bg-white rounded-2xl border border-red-100"
+              >
+                <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <Search className="w-10 h-10 text-red-500" />
+                </div>
+                <h3 className="text-2xl font-bold text-gray-900 mb-3">Tutor data unavailable</h3>
+                <p className="text-gray-500 max-w-md mx-auto">{loadError}</p>
+              </motion.div>
             ) : filteredTutors.length === 0 ? (
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}

@@ -96,7 +96,7 @@ class EmailService:
                 if self.port != 587:
                     candidates.append(("starttls", self.host, 587))
 
-            last_error: Exception | None = None
+            last_error: Optional[Exception] = None
             for mode, host, port in candidates:
                 try:
                     if mode == "ssl":

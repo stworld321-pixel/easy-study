@@ -28,9 +28,9 @@ def build_certificate_pdf(
     subject: str,
     session_date: datetime,
     certificate_number: str,
-    session_name: str | None = None,
-    tutor_signature_url: str | None = None,
-    tutor_signature_bytes: bytes | None = None,
+    session_name: Optional[str] = None,
+    tutor_signature_url: Optional[str] = None,
+    tutor_signature_bytes: Optional[bytes] = None,
     timezone_name: Optional[str] = None,
 ) -> bytes:
     """

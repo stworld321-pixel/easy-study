@@ -64,6 +64,43 @@ export const formatTimeInIndia = (
   });
 };
 
+export const utcIsoToZonedDateTimeLocal = (
+  input: string | Date,
+  timeZone: string = INDIA_TIMEZONE,
+): string => {
+  const value = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(value.getTime())) return '';
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).formatToParts(value);
+
+    const get = (type: string): string => parts.find((part) => part.type === type)?.value || '';
+    const hour = get('hour') === '24' ? '00' : get('hour');
+    return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`;
+  } catch {
+    return '';
+  }
+};
+
+export const zonedDateTimeLocalToUtcIso = (
+  value: string,
+  timeZone: string = INDIA_TIMEZONE,
+): string => {
+  const [dateStr, timeStr] = value.split('T');
+  if (!dateStr || !timeStr) {
+    throw new Error(`Invalid datetime-local value: ${value}`);
+  }
+  return zonedDateTimeToUtcIso(dateStr, timeStr, timeZone);
+};
+
 // Convert a wall-clock date + time in a specific IANA timezone to a UTC
 // ISO string ending in "Z".
 //

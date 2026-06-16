@@ -33,6 +33,12 @@ const Login: React.FC = () => {
   const locationState = location.state as LocationState | null;
   const redirectMessage = locationState?.message;
   const redirectFrom = locationState?.from;
+  const authRedirectState = redirectFrom
+    ? {
+        from: redirectFrom,
+        message: redirectMessage || 'Create an account to continue.',
+      }
+    : undefined;
 
   // Redirect after successful login based on user role or redirect path
   useEffect(() => {
@@ -220,7 +226,11 @@ const Login: React.FC = () => {
           {/* Sign Up Link */}
           <p className="mt-8 text-center text-gray-600">
             Don't have an account?{' '}
-            <Link to="/register" className="text-primary-600 font-medium hover:underline">
+            <Link
+              to="/register"
+              state={authRedirectState}
+              className="text-primary-600 font-medium hover:underline"
+            >
               Sign up for free
             </Link>
           </p>

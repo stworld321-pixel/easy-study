@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Mail, Lock, Eye, EyeOff, ArrowRight, User, GraduationCap, Briefcase } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
@@ -14,6 +14,11 @@ const GoogleIcon = () => (
     <path fill="#4285F4" d="M21.2 13.9c0-.5-.1-.9-.1-1.3H12v3.9h5.5c-.2 1.1-.9 2-1.8 2.6l3 2.5c1.8-1.7 2.5-4.1 2.5-7.7z" />
   </svg>
 );
+
+interface LocationState {
+  from?: string;
+  message?: string;
+}
 
 const Register: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -32,11 +37,23 @@ const Register: React.FC = () => {
 
   const { register, loginWithToken, user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const locationState = location.state as LocationState | null;
+  const redirectFrom = locationState?.from;
+  const redirectMessage = locationState?.message;
+  const authRedirectState = redirectFrom
+    ? {
+        from: redirectFrom,
+        message: redirectMessage || 'Sign in to continue.',
+      }
+    : undefined;
 
   // Redirect after successful registration based on user role
   useEffect(() => {
     if (user) {
-      if (user.role === 'tutor') {
+      if (redirectFrom && user.role === 'student') {
+        navigate(redirectFrom);
+      } else if (user.role === 'tutor') {
         navigate('/tutor/dashboard');
       } else if (user.role === 'student') {
         navigate('/student/dashboard');
@@ -44,7 +61,7 @@ const Register: React.FC = () => {
         navigate('/');
       }
     }
-  }, [user, navigate]);
+  }, [user, navigate, redirectFrom]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,6 +151,12 @@ const Register: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900 mb-2">Create an account</h1>
             <p className="text-gray-600">Start your journey with us today</p>
           </div>
+
+          {redirectMessage && (
+            <div className="mb-6 p-4 bg-blue-50 border border-blue-200 text-blue-700 rounded-xl text-sm">
+              {redirectMessage}
+            </div>
+          )}
 
           {/* Role Selection */}
           <div className="grid grid-cols-2 gap-4 mb-8">
@@ -327,7 +350,11 @@ const Register: React.FC = () => {
           {/* Sign In Link */}
           <p className="mt-8 text-center text-gray-600">
             Already have an account?{' '}
-            <Link to="/login" className="text-primary-600 font-medium hover:underline">
+            <Link
+              to="/login"
+              state={authRedirectState}
+              className="text-primary-600 font-medium hover:underline"
+            >
               Sign in
             </Link>
           </p>

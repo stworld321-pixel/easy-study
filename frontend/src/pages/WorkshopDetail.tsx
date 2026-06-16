@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Calendar, Clock3, Loader2, Users, User } from 'lucide-react';
 import { bookingsAPI, paymentsAPI, workshopsAPI } from '../services/api';
 import type { WorkshopResponse } from '../services/api';
@@ -38,8 +38,10 @@ interface RazorpayResponse {
 const WorkshopDetail: React.FC = () => {
   const { workshopId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const { formatPrice, currency } = useCurrency();
+  const resumeAttemptedRef = useRef(false);
 
   const [workshop, setWorkshop] = useState<WorkshopResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,10 +77,11 @@ const WorkshopDetail: React.FC = () => {
     setActionMessage(null);
 
     if (!user) {
+      const resumePath = `/workshops/${workshop.id}?resumeWorkshop=1`;
       navigate('/login', {
         state: {
-          from: `/workshops/${workshop.id}`,
-          message: 'Please login to book this workshop',
+          from: resumePath,
+          message: 'Please login or sign up to book this workshop.',
         },
       });
       return;
@@ -202,6 +205,22 @@ const WorkshopDetail: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (!user || !workshop || resumeAttemptedRef.current) return;
+    const params = new URLSearchParams(location.search);
+    if (params.get('resumeWorkshop') !== '1') return;
+
+    resumeAttemptedRef.current = true;
+    params.delete('resumeWorkshop');
+    const cleaned = params.toString();
+    navigate(
+      { pathname: location.pathname, search: cleaned ? `?${cleaned}` : '' },
+      { replace: true },
+    );
+    void handleBookWorkshop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, workshop, location.pathname, location.search, navigate]);
+
   if (loading) {
     return <div className="min-h-screen pt-24 px-4">Loading workshop...</div>;
   }
@@ -227,18 +246,22 @@ const WorkshopDetail: React.FC = () => {
         </Link>
 
         <div className="mt-4 bg-white rounded-2xl border border-gray-200 overflow-hidden">
-          <div className="aspect-[16/8] bg-gray-100">
+          <div className="relative aspect-[16/8] overflow-hidden bg-gray-100">
             {workshop.thumbnail_url ? (
               isVideoUrl(workshop.thumbnail_url) ? (
                 <video
                   src={workshop.thumbnail_url}
-                  className="w-full h-full object-cover"
+                  className="absolute inset-0 block h-full w-full object-cover object-top bg-gray-100"
                   controls
                   playsInline
                   preload="metadata"
                 />
               ) : (
-                <img src={workshop.thumbnail_url} alt={workshop.title} className="w-full h-full object-cover" />
+                <img
+                  src={workshop.thumbnail_url}
+                  alt={workshop.title}
+                  className="absolute inset-0 block h-full w-full object-cover object-top bg-gray-100"
+                />
               )
             ) : (
               <div className="w-full h-full flex items-center justify-center text-gray-400">No image</div>

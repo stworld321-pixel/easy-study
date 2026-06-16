@@ -14,7 +14,13 @@ import { tutorsAPI, availabilityAPI, bookingsAPI, withdrawalAPI, materialsAPI, u
 import ImageUpload from '../components/ImageUpload';
 import ChatInbox from '../components/ChatInbox';
 import { isVideoUrl } from '../utils/media';
-import { formatDateInIndia, formatDateTimeInIndia, formatTimeInIndia } from '../utils/datetime';
+import {
+  formatDateInIndia,
+  formatDateTimeInIndia,
+  formatTimeInIndia,
+  utcIsoToZonedDateTimeLocal,
+  zonedDateTimeLocalToUtcIso,
+} from '../utils/datetime';
 import type { TutorProfile } from '../types';
 import type { AvailabilitySettings, WeeklySchedule, TimeSlot, CalendarDay, BlockedDate, BookingResponse, TutorStats, WithdrawalResponse, MaterialResponse, AssignmentResponse, RatingResponse, BookedStudent, WorkshopResponse, WorkshopCreateInput, TutorPaymentListItem } from '../services/api';
 
@@ -726,7 +732,7 @@ const TutorDashboard: React.FC = () => {
       thumbnail_url: workshop.thumbnail_url || '',
       amount: workshop.amount,
       currency: workshop.currency || 'INR',
-      scheduled_at: workshop.scheduled_at ? workshop.scheduled_at.slice(0, 16) : '',
+      scheduled_at: workshop.scheduled_at ? utcIsoToZonedDateTimeLocal(workshop.scheduled_at) : '',
       duration_minutes: workshop.duration_minutes,
       max_participants: workshop.max_participants,
       is_active: workshop.is_active,
@@ -770,7 +776,7 @@ const TutorDashboard: React.FC = () => {
         title: workshopForm.title.trim(),
         description: workshopForm.description?.trim() || '',
         currency: (workshopForm.currency || profile.currency || 'INR').toUpperCase(),
-        scheduled_at: new Date(workshopForm.scheduled_at).toISOString(),
+        scheduled_at: zonedDateTimeLocalToUtcIso(workshopForm.scheduled_at),
       };
       if (editingWorkshopId) {
         await workshopsAPI.updateWorkshop(editingWorkshopId, payload);
@@ -3506,5 +3512,4 @@ const TutorDashboard: React.FC = () => {
 };
 
 export default TutorDashboard;
-
 

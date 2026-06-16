@@ -68,7 +68,7 @@ def _dispatch_background(coro, context: str) -> None:
 def _role_value(role: object) -> str:
     return getattr(role, "value", role)
 
-def _safe_zoneinfo(timezone_name: str | None) -> tzinfo:
+def _safe_zoneinfo(timezone_name: Optional[str]) -> tzinfo:
     tz_name = (timezone_name or DEFAULT_APP_TIMEZONE).strip() or DEFAULT_APP_TIMEZONE
     try:
         return ZoneInfo(tz_name)
@@ -743,16 +743,17 @@ async def create_booking(
             workshop = await Workshop.get(workshop_id)
             if not workshop or not workshop.is_active:
                 raise HTTPException(status_code=400, detail="Workshop not found or inactive.")
-    if booking_data.session_type == SessionType.GROUP:
-        if not is_workshop_flow:
-            raise HTTPException(
-                status_code=400,
-                detail="Group sessions are currently disabled. Please book a private session."
-            )
-
     tutor = await TutorProfile.get(booking_data.tutor_id)
     if not tutor:
         raise HTTPException(status_code=404, detail="Tutor not found")
+
+    # Check if tutor offers group sessions
+    if booking_data.session_type == SessionType.GROUP:
+        if not is_workshop_flow and not tutor.offers_group:
+            raise HTTPException(
+                status_code=400,
+                detail="This tutor does not offer group sessions. Please book a private session."
+            )
 
     current_user_tutor = await TutorProfile.find_one(TutorProfile.user_id == str(current_user.id))
     if current_user_tutor and str(current_user_tutor.id) == booking_data.tutor_id:

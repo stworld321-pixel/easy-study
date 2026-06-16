@@ -1,6 +1,6 @@
 import re
 import unicodedata
-from typing import Iterable
+from typing import Iterable, Optional
 
 
 def slugify_text(value: str) -> str:
@@ -10,7 +10,7 @@ def slugify_text(value: str) -> str:
     return slug
 
 
-def build_tutor_slug(full_name: str, subjects: Iterable[str], city: str | None) -> str:
+def build_tutor_slug(full_name: str, subjects: Iterable[str], city: Optional[str]) -> str:
     subject_list = list(subjects or [])
     primary_subject = subject_list[0] if subject_list else "general"
     return "-".join(

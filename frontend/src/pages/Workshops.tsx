@@ -81,27 +81,32 @@ const Workshops: React.FC = () => {
             No workshops found.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-stretch">
             {filteredWorkshops.map((workshop) => (
-              <div key={workshop.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow">
-                <div className="aspect-[16/9] bg-gray-100">
+              <div key={workshop.id} className="h-full bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow flex flex-col">
+                <div className="relative aspect-[16/9] w-full overflow-hidden bg-gray-100">
                   {workshop.thumbnail_url ? (
                     isVideoUrl(workshop.thumbnail_url) ? (
                       <video
                         src={workshop.thumbnail_url}
-                        className="w-full h-full object-cover"
+                        className="absolute inset-0 block h-full w-full object-cover object-top bg-gray-100"
                         controls
                         playsInline
                         preload="metadata"
                       />
                     ) : (
-                      <img src={workshop.thumbnail_url} alt={workshop.title} className="w-full h-full object-cover" />
+                      <img
+                        src={workshop.thumbnail_url}
+                        alt={workshop.title}
+                        className="absolute inset-0 block h-full w-full object-cover object-top bg-gray-100"
+                        loading="lazy"
+                      />
                     )
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-gray-400">No image</div>
                   )}
                 </div>
-                <div className="p-5">
+                <div className="p-5 flex flex-1 flex-col">
                   <h2 className="text-lg font-semibold text-gray-900 line-clamp-2">{workshop.title}</h2>
                   <p className="text-sm text-gray-600 mt-1">By {workshop.tutor_name || 'Tutor'}</p>
 
@@ -124,16 +129,16 @@ const Workshops: React.FC = () => {
                     {formatPrice(workshop.amount)}
                   </div>
 
-                  <div className="mt-4 flex items-center gap-2">
+                  <div className="mt-auto pt-4 flex flex-col sm:flex-row sm:items-center gap-2">
                     <Link
                       to={`/workshops/${workshop.id}`}
-                      className="inline-flex items-center justify-center px-4 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 text-sm font-medium"
+                      className="inline-flex flex-1 items-center justify-center px-4 py-2 rounded-lg border border-primary-200 text-primary-700 hover:bg-primary-50 text-sm font-medium"
                     >
                       View Details
                     </Link>
                     <Link
                       to={`/workshops/${workshop.id}`}
-                      className="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm font-medium"
+                      className="inline-flex flex-1 items-center justify-center px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 text-sm font-medium"
                     >
                       Book Workshop
                     </Link>

@@ -13,6 +13,14 @@ from app.utils.seo import build_tutor_slug
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+DEMO_TUTOR_EMAILS = {
+    "sarah.johnson@example.com",
+    "james.chen@example.com",
+    "emma.williams@example.com",
+    "raj.patel@example.com",
+    "maria.garcia@example.com",
+    "alex.kim@example.com",
+}
 
 
 def _schedule_has_slots(schedule: Optional[dict]) -> bool:
@@ -74,9 +82,21 @@ async def _is_public_tutor_visible(tutor: TutorProfile) -> bool:
     """
     if not tutor or not tutor.is_available:
         return False
-    tutor_user = await User.get(tutor.user_id) if tutor.user_id else None
+    tutor_email = (tutor.email or "").strip().lower()
+    if tutor_email in DEMO_TUTOR_EMAILS:
+        return False
+
+    try:
+        tutor_user = await User.get(tutor.user_id) if tutor.user_id else None
+    except Exception:
+        logger.exception("Tutor profile has invalid user_id=%s", getattr(tutor, "user_id", None))
+        return False
     if not tutor_user:
         return False
+    user_email = (tutor_user.email or "").strip().lower()
+    if user_email in DEMO_TUTOR_EMAILS:
+        return False
+
     role_value = tutor_user.role.value if hasattr(tutor_user.role, "value") else tutor_user.role
     return bool(tutor_user.is_active and role_value == UserRole.TUTOR.value)
 
@@ -93,7 +113,8 @@ async def get_tutors(
     limit: int = 20
 ):
     try:
-        # Public tutors listing only returns active + verified tutors.
+        # Public tutors listing returns available tutor profiles whose linked user
+        # account is active and still has the tutor role.
         query = {
             "is_available": True,
         }
@@ -121,50 +142,75 @@ async def get_tutors(
             sort_field = "hourly_rate"
         elif sort_by == "price_high":
             sort_field = "-hourly_rate"
+        elif sort_by == "reviews":
+            sort_field = "-total_reviews"
 
-        tutors = await TutorProfile.find(query).sort(sort_field).skip(skip).limit(limit).to_list()
+        safe_skip = max(0, skip)
+        safe_limit = min(max(1, limit), 100)
+        batch_size = max(safe_limit * 3, 50)
+        raw_skip = 0
 
         results: List[TutorProfileResponse] = []
-        for t in tutors:
-            try:
-                if not await _is_public_tutor_visible(t):
-                    continue
-                results.append(
-                    TutorProfileResponse(
-                        id=str(t.id),
-                        user_id=str(t.user_id),
-                        full_name=t.full_name or "Unknown",
-                        email=t.email or "",
-                        avatar=t.avatar,
-                        signature_image_url=t.signature_image_url,
-                        headline=t.headline,
-                        bio=t.bio,
-                        experience_years=int(t.experience_years or 0),
-                        education=t.education,
-                        certifications=t.certifications or [],
-                        hourly_rate=float(t.hourly_rate or 0),
-                        group_hourly_rate=float(t.group_hourly_rate or 0),
-                        currency=t.currency or "INR",
-                        languages=t.languages or [],
-                        teaching_style=t.teaching_style,
-                        subjects=t.subjects or [],
-                        country=t.country,
-                        city=t.city,
-                        timezone=t.timezone,
-                        offers_private=t.offers_private if t.offers_private is not None else True,
-                        offers_group=t.offers_group if t.offers_group is not None else False,
-                        total_students=int(t.total_students or 0),
-                        total_lessons=int(t.total_lessons or 0),
-                        rating=float(t.rating or 0),
-                        total_reviews=int(t.total_reviews or 0),
-                        is_verified=t.is_verified if t.is_verified is not None else False,
-                        is_featured=t.is_featured if t.is_featured is not None else False,
-                        is_available=t.is_available if t.is_available is not None else True,
-                        created_at=t.created_at or datetime.utcnow()
+        visible_seen = 0
+
+        while len(results) < safe_limit:
+            tutors = await TutorProfile.find(query).sort(sort_field).skip(raw_skip).limit(batch_size).to_list()
+            if not tutors:
+                break
+
+            for t in tutors:
+                try:
+                    if not await _is_public_tutor_visible(t):
+                        continue
+
+                    if visible_seen < safe_skip:
+                        visible_seen += 1
+                        continue
+
+                    results.append(
+                        TutorProfileResponse(
+                            id=str(t.id),
+                            user_id=str(t.user_id),
+                            full_name=t.full_name or "Unknown",
+                            email=t.email or "",
+                            avatar=t.avatar,
+                            signature_image_url=t.signature_image_url,
+                            headline=t.headline,
+                            bio=t.bio,
+                            experience_years=int(t.experience_years or 0),
+                            education=t.education,
+                            certifications=t.certifications or [],
+                            hourly_rate=float(t.hourly_rate or 0),
+                            group_hourly_rate=float(t.group_hourly_rate or 0),
+                            currency=t.currency or "INR",
+                            languages=t.languages or [],
+                            teaching_style=t.teaching_style,
+                            subjects=t.subjects or [],
+                            country=t.country,
+                            city=t.city,
+                            timezone=t.timezone,
+                            offers_private=t.offers_private if t.offers_private is not None else True,
+                            offers_group=t.offers_group if t.offers_group is not None else False,
+                            total_students=int(t.total_students or 0),
+                            total_lessons=int(t.total_lessons or 0),
+                            rating=float(t.rating or 0),
+                            total_reviews=int(t.total_reviews or 0),
+                            is_verified=t.is_verified if t.is_verified is not None else False,
+                            is_featured=t.is_featured if t.is_featured is not None else False,
+                            is_available=t.is_available if t.is_available is not None else True,
+                            created_at=t.created_at or datetime.utcnow()
+                        )
                     )
-                )
-            except Exception:
-                logger.exception("Skipping invalid tutor record id=%s", getattr(t, "id", "unknown"))
+                    visible_seen += 1
+
+                    if len(results) >= safe_limit:
+                        break
+                except Exception:
+                    logger.exception("Skipping invalid tutor record id=%s", getattr(t, "id", "unknown"))
+
+            if len(tutors) < batch_size:
+                break
+            raw_skip += batch_size
 
         return results
     except Exception:
