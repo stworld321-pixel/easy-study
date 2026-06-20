@@ -39,6 +39,12 @@ class RazorpayService:
         Returns:
             Razorpay order object
         """
+        if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
+            return {
+                "success": False,
+                "error": "Payment gateway is not configured. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET on the server."
+            }
+
         # Convert amount to paise (smallest unit) - Razorpay expects amount in paise
         amount_in_paise = int(amount * 100)
 
@@ -59,10 +65,16 @@ class RazorpayService:
                 "key_id": self.key_id
             }
         except Exception as e:
-            print(f"[Razorpay] Failed to create order: {e}")
+            error_text = str(e)
+            print(f"[Razorpay] Failed to create order: {error_text}")
+            if "authentication failed" in error_text.lower():
+                error_text = (
+                    "Payment gateway authentication failed. Check that RAZORPAY_KEY_ID "
+                    "and RAZORPAY_KEY_SECRET are a matching test/live key pair."
+                )
             return {
                 "success": False,
-                "error": str(e)
+                "error": error_text
             }
 
     def verify_payment(

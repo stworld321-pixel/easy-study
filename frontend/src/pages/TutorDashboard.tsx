@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   User, Calendar, Clock, DollarSign, BookOpen,
@@ -2283,15 +2283,19 @@ const TutorDashboard: React.FC = () => {
                             Open Link
                           </a>
                         )}
-                        {workshop.join_url && (
-                          <a
-                            href={workshop.join_url}
+                        {workshop.join_url ? (
+                          <RouterLink
+                            to={workshop.join_url}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="px-3 py-1.5 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200"
                           >
                             Join Workshop
-                          </a>
+                          </RouterLink>
+                        ) : (
+                          <span className="px-3 py-1.5 text-sm bg-gray-100 text-gray-500 rounded-lg">
+                            No bookings yet
+                          </span>
                         )}
                         <button
                           onClick={() => handleDeleteWorkshop(workshop.id)}
@@ -3512,4 +3516,3 @@ const TutorDashboard: React.FC = () => {
 };
 
 export default TutorDashboard;
-

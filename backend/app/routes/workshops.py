@@ -1,18 +1,16 @@
 from datetime import datetime, timezone
 from typing import List, Optional
-from types import SimpleNamespace
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.models.tutor import TutorProfile
-from app.models.booking import Booking, BookingStatus, SessionType
+from app.models.booking import Booking, BookingStatus
 from app.models.user import User, UserRole
 from app.models.workshop import Workshop
 from app.core.config import settings
 from app.routes.auth import get_current_user
-from app.routes.bookings import _build_jitsi_access_token, _resolve_meeting_domain_and_room, _meeting_jwt_required
 from app.schemas.booking import UtcDatetime
 
 router = APIRouter()
@@ -76,32 +74,10 @@ class WorkshopResponse(BaseModel):
     updated_at: UtcDatetime
 
 
-def _build_tutor_direct_join_url(workshop: Workshop, current_user: User) -> Optional[str]:
-    if _meeting_jwt_required() and not ((settings.JITSI_APP_SECRET or "").strip() or (settings.JAAS_PRIVATE_KEY or "").strip()):
-        return None
-
-    room_key = f"zc-w-{str(workshop.id)}".lower().replace(" ", "-")
-    domain, room_name, meeting_url = _resolve_meeting_domain_and_room(room_key)
-    fake_booking = SimpleNamespace(
-        id=str(workshop.id),
-        tutor_id=workshop.tutor_id,
-        student_id="",
-        session_type=SessionType.GROUP,
-    )
-    token = _build_jitsi_access_token(
-        room_name=room_name,
-        booking=fake_booking,  # duck-typed for JWT payload generation
-        user=current_user,
-        is_moderator=True,
-    )
-    if not token:
-        return None
-    return f"{meeting_url}?jwt={token}"
-
-
 def _build_in_app_meeting_url(booking_id: str) -> Optional[str]:
-    base_url = (settings.FRONTEND_URL or "").rstrip("/")
-    return f"{base_url}/meeting/{booking_id}" if base_url else None
+    # Keep dashboard links relative so a misconfigured FRONTEND_URL cannot send
+    # tutors to a different deployment or stale Jitsi room.
+    return f"/meeting/{booking_id}"
 
 
 async def _find_workshop_anchor_booking(workshop: Workshop) -> Optional[Booking]:

@@ -1082,7 +1082,7 @@ async def get_meeting_access(booking_id: str, current_user: User = Depends(get_c
                     logger.exception(
                         "Failed to latch tutor_joined_at for slot of booking %s", booking.id,
                     )
-        elif is_student and slot.tutor_joined_at is None:
+        elif is_student and slot.tutor_joined_at is None and not _is_workshop_booking(booking):
             raise HTTPException(
                 status_code=403,
                 detail={
