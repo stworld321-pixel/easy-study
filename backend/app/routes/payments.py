@@ -233,6 +233,15 @@ async def verify_razorpay_payment(
     if is_workshop_booking:
         workshop_confirmed = booking.status != BookingStatus.CONFIRMED
         booking.status = BookingStatus.CONFIRMED
+
+        # Extract workshop ID for shared room key
+        workshop_id = None
+        if booking.notes and "workshop booking:" in booking.notes.lower():
+            try:
+                workshop_id = booking.notes.split(":", 1)[1].strip()
+            except Exception:
+                workshop_id = None
+
         if not booking.meeting_room_key:
             workshop_key_source = ""
             if booking.notes and "workshop booking:" in booking.notes.lower():
@@ -244,7 +253,35 @@ async def verify_razorpay_payment(
             booking.meeting_room_key = f"zc-w-{workshop_key_source}".lower().replace(" ", "-")
         booking.meeting_provider = "jitsi"
         booking.meeting_origin = "workshop_payment"
-        booking.meeting_link = _build_in_app_meeting_link(booking)
+
+        # Find the anchor booking (first confirmed booking for this workshop) to share the meeting link
+        anchor_booking = await Booking.find_one({
+            "tutor_id": booking.tutor_id,
+            "is_workshop": True,
+            "status": BookingStatus.CONFIRMED.value,
+            "meeting_room_key": booking.meeting_room_key,
+            "_id": {"$ne": booking.id},  # Exclude current booking
+        })
+
+        if anchor_booking:
+            # Use the anchor booking's meeting link (first student gets the room)
+            booking.meeting_link = anchor_booking.meeting_link
+            # Update all other confirmed bookings in this workshop to use the same link
+            all_workshop_bookings = await Booking.find({
+                "tutor_id": booking.tutor_id,
+                "is_workshop": True,
+                "status": BookingStatus.CONFIRMED.value,
+                "meeting_room_key": booking.meeting_room_key,
+            }).to_list()
+            for wb in all_workshop_bookings:
+                if wb.meeting_link != booking.meeting_link:
+                    wb.meeting_link = booking.meeting_link
+                    wb.updated_at = datetime.utcnow()
+                    await wb.save()
+        else:
+            # First student - create new meeting link
+            booking.meeting_link = _build_in_app_meeting_link(booking)
+
         booking.updated_at = datetime.utcnow()
         await booking.save()
 
