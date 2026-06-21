@@ -255,32 +255,67 @@ async def verify_razorpay_payment(
         booking.meeting_origin = "workshop_payment"
 
         # Find the anchor booking (first confirmed booking for this workshop) to share the meeting link
-        anchor_booking = await Booking.find_one({
-            "tutor_id": booking.tutor_id,
-            "is_workshop": True,
-            "status": BookingStatus.CONFIRMED.value,
-            "meeting_room_key": booking.meeting_room_key,
-            "_id": {"$ne": booking.id},  # Exclude current booking
-        })
+        # Also match by workshop ID from notes if available
+        logger.info(f"Workshop payment: booking_id={booking.id}, meeting_room_key={booking.meeting_room_key}, tutor_id={booking.tutor_id}, workshop_id={workshop_id}")
 
-        if anchor_booking:
+        anchor_booking = None
+
+        # First, try to find by meeting_room_key
+        if booking.meeting_room_key:
+            anchor_query = {
+                "tutor_id": booking.tutor_id,
+                "status": BookingStatus.CONFIRMED.value,
+                "meeting_room_key": booking.meeting_room_key,
+                "_id": {"$ne": booking.id},
+            }
+            logger.info(f"Workshop payment: searching with meeting_room_key query: {anchor_query}")
+            anchor_booking = await Booking.find_one(anchor_query)
+
+        # If not found, try by workshop ID in notes (fallback)
+        if not anchor_booking and workshop_id:
+            anchor_query = {
+                "tutor_id": booking.tutor_id,
+                "status": BookingStatus.CONFIRMED.value,
+                "notes": {"$regex": f"workshop booking: {workshop_id}", "$options": "i"},
+                "_id": {"$ne": booking.id},
+            }
+            logger.info(f"Workshop payment: searching with notes query: {anchor_query}")
+            anchor_booking = await Booking.find_one(anchor_query)
+
+        # Last resort: find any confirmed booking from this tutor with a meeting link
+        if not anchor_booking:
+            anchor_query = {
+                "tutor_id": booking.tutor_id,
+                "status": BookingStatus.CONFIRMED.value,
+                "meeting_link": {"$ne": None},
+                "_id": {"$ne": booking.id},
+            }
+            logger.info(f"Workshop payment: last resort search: {anchor_query}")
+            anchor_booking = await Booking.find_one(anchor_query)
+
+        logger.info(f"Workshop payment: anchor_booking found={anchor_booking is not None}, anchor_meeting_link={anchor_booking.meeting_link if anchor_booking else None}")
+
+        if anchor_booking and anchor_booking.meeting_link:
             # Use the anchor booking's meeting link (first student gets the room)
             booking.meeting_link = anchor_booking.meeting_link
             # Update all other confirmed bookings in this workshop to use the same link
             all_workshop_bookings = await Booking.find({
                 "tutor_id": booking.tutor_id,
-                "is_workshop": True,
                 "status": BookingStatus.CONFIRMED.value,
                 "meeting_room_key": booking.meeting_room_key,
             }).to_list()
+            updated_count = 0
             for wb in all_workshop_bookings:
                 if wb.meeting_link != booking.meeting_link:
                     wb.meeting_link = booking.meeting_link
                     wb.updated_at = datetime.utcnow()
                     await wb.save()
+                    updated_count += 1
+            logger.info(f"Workshop {workshop_id}: Updated {updated_count} bookings to share meeting link")
         else:
             # First student - create new meeting link
             booking.meeting_link = _build_in_app_meeting_link(booking)
+            logger.info(f"Workshop {workshop_id}: Created new meeting link {booking.meeting_link}")
 
         booking.updated_at = datetime.utcnow()
         await booking.save()
