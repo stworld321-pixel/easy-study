@@ -118,9 +118,17 @@ async def _resolve_booking_for_current_user(
     if is_student or is_tutor_owner:
         return requested_booking, is_student, is_tutor_owner
 
-    if requested_booking.session_type != SessionType.GROUP:
+    # Allow access for group/workshop sessions - check if user has any confirmed booking
+    # in this workshop/group session
+    is_group_or_workshop = (
+        requested_booking.session_type == SessionType.GROUP or
+        _is_workshop_booking(requested_booking)
+    )
+
+    if not is_group_or_workshop:
         raise HTTPException(status_code=403, detail="Not authorized")
 
+    # First try: exact match on time and duration
     participant_booking = await Booking.find_one({
         "student_id": str(current_user.id),
         "tutor_id": requested_booking.tutor_id,
@@ -130,7 +138,32 @@ async def _resolve_booking_for_current_user(
         "status": BookingStatus.CONFIRMED.value,
     })
 
+    # Second try: match by meeting_room_key (for workshops with shared links)
+    if not participant_booking and requested_booking.meeting_room_key:
+        participant_booking = await Booking.find_one({
+            "student_id": str(current_user.id),
+            "tutor_id": requested_booking.tutor_id,
+            "meeting_room_key": requested_booking.meeting_room_key,
+            "status": BookingStatus.CONFIRMED.value,
+        })
+
+    # Third try: match by workshop ID in notes (last resort)
+    if not participant_booking and requested_booking.notes and "workshop booking:" in requested_booking.notes.lower():
+        workshop_id = None
+        try:
+            workshop_id = requested_booking.notes.split(":", 1)[1].strip()
+        except Exception:
+            pass
+        if workshop_id:
+            participant_booking = await Booking.find_one({
+                "student_id": str(current_user.id),
+                "tutor_id": requested_booking.tutor_id,
+                "notes": {"$regex": f"workshop booking: {workshop_id}", "$options": "i"},
+                "status": BookingStatus.CONFIRMED.value,
+            })
+
     if not participant_booking:
+        logger.warning(f"User {current_user.id} not authorized for booking {requested_booking.id}, could not find their booking")
         raise HTTPException(status_code=403, detail="Not authorized")
 
     is_student, is_tutor_owner = await _get_booking_access(participant_booking, current_user)

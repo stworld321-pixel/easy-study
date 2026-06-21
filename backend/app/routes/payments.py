@@ -8,6 +8,7 @@ from typing import Optional
 from datetime import datetime, timedelta
 import logging
 import asyncio
+import re
 from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -35,6 +36,21 @@ def _build_in_app_meeting_link(booking: Booking) -> str:
     if not base:
         base = "http://localhost:5173"
     return f"{base}/meeting/{booking.id}"
+
+
+def _extract_workshop_id(booking: Booking) -> Optional[str]:
+    if booking.notes and "workshop booking:" in booking.notes.lower():
+        try:
+            workshop_id = booking.notes.split(":", 1)[1].strip()
+            return workshop_id or None
+        except Exception:
+            return None
+    return None
+
+
+def _workshop_room_key(booking: Booking, workshop_id: Optional[str]) -> str:
+    key_source = workshop_id or (booking.session_name or booking.subject or str(booking.id)).strip()
+    return f"zc-w-{key_source}".lower().replace(" ", "-")
 
 
 def _dispatch_background(coro, context: str) -> None:
@@ -235,22 +251,10 @@ async def verify_razorpay_payment(
         booking.status = BookingStatus.CONFIRMED
 
         # Extract workshop ID for shared room key
-        workshop_id = None
-        if booking.notes and "workshop booking:" in booking.notes.lower():
-            try:
-                workshop_id = booking.notes.split(":", 1)[1].strip()
-            except Exception:
-                workshop_id = None
+        workshop_id = _extract_workshop_id(booking)
 
         if not booking.meeting_room_key:
-            workshop_key_source = ""
-            if booking.notes and "workshop booking:" in booking.notes.lower():
-                try:
-                    workshop_key_source = booking.notes.split(":", 1)[1].strip()
-                except Exception:
-                    workshop_key_source = ""
-            workshop_key_source = workshop_key_source or (booking.session_name or booking.subject or str(booking.id)).strip()
-            booking.meeting_room_key = f"zc-w-{workshop_key_source}".lower().replace(" ", "-")
+            booking.meeting_room_key = _workshop_room_key(booking, workshop_id)
         booking.meeting_provider = "jitsi"
         booking.meeting_origin = "workshop_payment"
 
@@ -260,10 +264,24 @@ async def verify_razorpay_payment(
 
         anchor_booking = None
 
-        # First, try to find by meeting_room_key
-        if booking.meeting_room_key:
+        # Prefer the workshop id from notes. Older rows may have been confirmed
+        # before meeting_room_key was backfilled, so notes are the strongest anchor.
+        if workshop_id:
             anchor_query = {
                 "tutor_id": booking.tutor_id,
+                "is_workshop": True,
+                "status": BookingStatus.CONFIRMED.value,
+                "notes": {"$regex": f"^workshop booking:\\s*{re.escape(workshop_id)}$", "$options": "i"},
+                "_id": {"$ne": booking.id},
+            }
+            logger.info(f"Workshop payment: searching with notes query: {anchor_query}")
+            anchor_booking = await Booking.find_one(anchor_query)
+
+        # Then try the stable workshop room key.
+        if not anchor_booking and booking.meeting_room_key:
+            anchor_query = {
+                "tutor_id": booking.tutor_id,
+                "is_workshop": True,
                 "status": BookingStatus.CONFIRMED.value,
                 "meeting_room_key": booking.meeting_room_key,
                 "_id": {"$ne": booking.id},
@@ -271,47 +289,42 @@ async def verify_razorpay_payment(
             logger.info(f"Workshop payment: searching with meeting_room_key query: {anchor_query}")
             anchor_booking = await Booking.find_one(anchor_query)
 
-        # If not found, try by workshop ID in notes (fallback)
-        if not anchor_booking and workshop_id:
-            anchor_query = {
-                "tutor_id": booking.tutor_id,
-                "status": BookingStatus.CONFIRMED.value,
-                "notes": {"$regex": f"workshop booking: {workshop_id}", "$options": "i"},
-                "_id": {"$ne": booking.id},
-            }
-            logger.info(f"Workshop payment: searching with notes query: {anchor_query}")
-            anchor_booking = await Booking.find_one(anchor_query)
-
-        # Last resort: find any confirmed booking from this tutor with a meeting link
-        if not anchor_booking:
-            anchor_query = {
-                "tutor_id": booking.tutor_id,
-                "status": BookingStatus.CONFIRMED.value,
-                "meeting_link": {"$ne": None},
-                "_id": {"$ne": booking.id},
-            }
-            logger.info(f"Workshop payment: last resort search: {anchor_query}")
-            anchor_booking = await Booking.find_one(anchor_query)
-
         logger.info(f"Workshop payment: anchor_booking found={anchor_booking is not None}, anchor_meeting_link={anchor_booking.meeting_link if anchor_booking else None}")
 
         if anchor_booking and anchor_booking.meeting_link:
-            # Use the anchor booking's meeting link (first student gets the room)
+            # Use the anchor booking's meeting link and room key. The frontend resolves
+            # a shared /meeting/{anchor_id} URL back to the signed-in student's booking
+            # before requesting Jitsi access, so every participant booking must carry
+            # the same room key or students can land in separate Jitsi rooms.
             booking.meeting_link = anchor_booking.meeting_link
-            # Update all other confirmed bookings in this workshop to use the same link
-            all_workshop_bookings = await Booking.find({
+            if anchor_booking.meeting_room_key:
+                booking.meeting_room_key = anchor_booking.meeting_room_key
+
+            sync_filter = {
                 "tutor_id": booking.tutor_id,
+                "is_workshop": True,
                 "status": BookingStatus.CONFIRMED.value,
-                "meeting_room_key": booking.meeting_room_key,
-            }).to_list()
+            }
+            if workshop_id:
+                sync_filter["notes"] = {"$regex": f"^workshop booking:\\s*{re.escape(workshop_id)}$", "$options": "i"}
+            else:
+                sync_filter["meeting_room_key"] = booking.meeting_room_key
+
+            all_workshop_bookings = await Booking.find(sync_filter).to_list()
             updated_count = 0
             for wb in all_workshop_bookings:
+                needs_save = False
                 if wb.meeting_link != booking.meeting_link:
                     wb.meeting_link = booking.meeting_link
+                    needs_save = True
+                if booking.meeting_room_key and wb.meeting_room_key != booking.meeting_room_key:
+                    wb.meeting_room_key = booking.meeting_room_key
+                    needs_save = True
+                if needs_save:
                     wb.updated_at = datetime.utcnow()
                     await wb.save()
                     updated_count += 1
-            logger.info(f"Workshop {workshop_id}: Updated {updated_count} bookings to share meeting link")
+            logger.info(f"Workshop {workshop_id}: Updated {updated_count} bookings to share meeting link and room key")
         else:
             # First student - create new meeting link
             booking.meeting_link = _build_in_app_meeting_link(booking)
