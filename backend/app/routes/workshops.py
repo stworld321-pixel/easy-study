@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 import logging
 
@@ -15,6 +15,16 @@ from app.schemas.booking import UtcDatetime
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _workshop_ends_at(workshop: Workshop) -> datetime:
+    scheduled_at = getattr(workshop, "scheduled_at", None) or datetime.utcnow()
+    duration_minutes = int(getattr(workshop, "duration_minutes", 60) or 60)
+    return scheduled_at + timedelta(minutes=duration_minutes)
+
+
+def _is_workshop_expired(workshop: Workshop, now: Optional[datetime] = None) -> bool:
+    return _workshop_ends_at(workshop) <= (now or datetime.utcnow())
 
 
 def _normalize_to_utc_naive(dt: datetime) -> datetime:
@@ -167,8 +177,7 @@ async def get_public_workshops(
     upcoming_only: bool = Query(default=True),
 ):
     filters = {"is_active": True}
-    if upcoming_only:
-        filters["scheduled_at"] = {"$gte": datetime.utcnow()}
+    now_utc = datetime.utcnow()
 
     if q and q.strip():
         term = q.strip()
@@ -179,13 +188,11 @@ async def get_public_workshops(
             {"tutor_name": {"$regex": term, "$options": "i"}},
         ]
 
-    workshops = (
-        await Workshop.find(filters)
-        .sort("scheduled_at")
-        .skip(skip)
-        .limit(limit)
-        .to_list()
-    )
+    workshops = await Workshop.find(filters).sort("scheduled_at").to_list()
+    if upcoming_only:
+        workshops = [w for w in workshops if not _is_workshop_expired(w, now_utc)]
+    workshops = workshops[skip:skip + limit]
+
     results: List[WorkshopResponse] = []
     for workshop in workshops:
         try:
@@ -198,7 +205,7 @@ async def get_public_workshops(
 @router.get("/public/{workshop_id}", response_model=WorkshopResponse)
 async def get_public_workshop_detail(workshop_id: str):
     workshop = await Workshop.get(workshop_id)
-    if not workshop or not workshop.is_active:
+    if not workshop or not workshop.is_active or _is_workshop_expired(workshop):
         raise HTTPException(status_code=404, detail="Workshop not found")
     return await _to_response(workshop)
 

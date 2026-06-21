@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Calendar, Clock3, Search, Users } from 'lucide-react';
 import { workshopsAPI } from '../services/api';
@@ -14,26 +14,20 @@ const Workshops: React.FC = () => {
   const [query, setQuery] = useState('');
   const { formatPrice } = useCurrency();
 
+  const isWorkshopExpired = useCallback((workshop: WorkshopResponse) => {
+    const startTime = new Date(workshop.scheduled_at).getTime();
+    if (Number.isNaN(startTime)) return false;
+    return Date.now() >= startTime + (workshop.duration_minutes || 0) * 60_000;
+  }, []);
+
   useEffect(() => {
     const fetchWorkshops = async () => {
       setLoading(true);
       setError('');
       try {
-        let upcoming: WorkshopResponse[] = [];
-        try {
-          upcoming = await workshopsAPI.getPublicWorkshops({ upcoming_only: true, limit: 100 });
-        } catch (upcomingError) {
-          console.error('Failed to load upcoming workshops:', upcomingError);
-        }
-
+        const upcoming = await workshopsAPI.getPublicWorkshops({ upcoming_only: true, limit: 100 });
         const upcomingList = Array.isArray(upcoming) ? upcoming : [];
-        if (upcomingList.length > 0) {
-          setWorkshops(upcomingList);
-        } else {
-          const allActive = await workshopsAPI.getPublicWorkshops({ upcoming_only: false, limit: 100 });
-          const list = Array.isArray(allActive) ? allActive : [];
-          setWorkshops(list);
-        }
+        setWorkshops(upcomingList.filter((workshop) => !isWorkshopExpired(workshop)));
       } catch (error) {
         console.error('Failed to load workshops:', error);
         setWorkshops([]);
@@ -44,7 +38,15 @@ const Workshops: React.FC = () => {
     };
 
     fetchWorkshops();
-  }, []);
+  }, [isWorkshopExpired]);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setWorkshops((current) => current.filter((workshop) => !isWorkshopExpired(workshop)));
+    }, 60_000);
+
+    return () => clearInterval(interval);
+  }, [isWorkshopExpired]);
 
   const filteredWorkshops = useMemo(() => {
     const term = query.trim().toLowerCase();
